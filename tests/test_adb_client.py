@@ -15,6 +15,16 @@ from rtsp_tool.adb_client import (
 )
 
 
+SAFE_YOLO_INSTALL_COMMAND = (
+    "app=/usr/bin/sample_smart_camera; model=/network_binary.nb; dir=/tmp/yolo_app_update; "
+    "backup_app=$dir/sample_smart_camera.previous; backup_model=$dir/network_binary.nb.previous; "
+    "if cp $app $backup_app && cp $model $backup_model && "
+    "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && sync; "
+    "then rm -rf $dir; "
+    "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi"
+)
+
+
 class ADBClientTests(unittest.TestCase):
     def test_parse_adb_devices_keeps_serial_and_state(self):
         output = """List of devices attached
@@ -104,13 +114,26 @@ wlan0     Link encap:Ethernet
                 "-s",
                 "abc123",
                 "shell",
-                "cp /tmp/yolo_app_update/sample_smart_camera /usr/bin/sample_smart_camera && "
-                "cp /tmp/yolo_app_update/network_binary.nb /network_binary.nb && "
-                "chmod +x /usr/bin/sample_smart_camera && sync && rm -rf /tmp/yolo_app_update",
+                SAFE_YOLO_INSTALL_COMMAND,
             ],
         )
         self.assertEqual(YOLO_APP_REMOTE_PATH, "/usr/bin/sample_smart_camera")
         self.assertEqual(YOLO_MODEL_REMOTE_PATH, "/network_binary.nb")
+
+    def test_yolo_install_command_rolls_back_pair_on_install_failure(self):
+        client = ADBClient(adb_path="adb")
+        shell_command = client.install_yolo_update_command("abc123")[-1]
+
+        self.assertIn("backup_app=$dir/sample_smart_camera.previous", shell_command)
+        self.assertIn("backup_model=$dir/network_binary.nb.previous", shell_command)
+        self.assertLess(
+            shell_command.index("cp $app $backup_app"),
+            shell_command.index("cp $dir/sample_smart_camera $app"),
+        )
+        self.assertIn(
+            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi",
+            shell_command,
+        )
 
     def test_install_yolo_package_runs_stop_prepare_push_install_sequence(self):
         client = ADBClient(adb_path="adb")
@@ -142,9 +165,7 @@ wlan0     Link encap:Ethernet
                         "-s",
                         "abc123",
                         "shell",
-                        "cp /tmp/yolo_app_update/sample_smart_camera /usr/bin/sample_smart_camera && "
-                        "cp /tmp/yolo_app_update/network_binary.nb /network_binary.nb && "
-                        "chmod +x /usr/bin/sample_smart_camera && sync && rm -rf /tmp/yolo_app_update",
+                        SAFE_YOLO_INSTALL_COMMAND,
                     ]
                 ), YOLO_INSTALL_TIMEOUT),
             ],

@@ -148,9 +148,12 @@ class ADBClient:
 
     def install_yolo_update_command(self, serial: str) -> list[str]:
         shell_command = (
-            f"cp {YOLO_UPDATE_DIR}/sample_smart_camera {YOLO_APP_REMOTE_PATH} && "
-            f"cp {YOLO_UPDATE_DIR}/network_binary.nb {YOLO_MODEL_REMOTE_PATH} && "
-            f"chmod +x {YOLO_APP_REMOTE_PATH} && sync && rm -rf {YOLO_UPDATE_DIR}"
+            f"app={YOLO_APP_REMOTE_PATH}; model={YOLO_MODEL_REMOTE_PATH}; dir={YOLO_UPDATE_DIR}; "
+            "backup_app=$dir/sample_smart_camera.previous; backup_model=$dir/network_binary.nb.previous; "
+            "if cp $app $backup_app && cp $model $backup_model && "
+            "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && sync; "
+            "then rm -rf $dir; "
+            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi"
         )
         return build_shell_command(self.adb_path, serial, shell_command)
 

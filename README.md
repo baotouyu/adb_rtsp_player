@@ -87,7 +87,7 @@ yolo_apps/
 
 - 文件夹名使用 `yoloApp_xxx`，其中 `xxx` 用来描述检测目标，例如 `yoloApp_苹果`。
 - `sample_smart_camera` 和 `network_binary.nb` 是一对 app/model，应放在同一个 `yoloApp_xxx` 文件夹内，并保持名称和路径匹配。
-- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`；工具不会自动备份旧文件。
+- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`；工具只会在更新过程中做临时回滚备份，不会为用户长期保留旧文件。
 - 板端需要允许 ADB 写入 `/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。如果 rootfs 只读、权限不足或需要 remount，请先在板端处理好。
 - 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务；不勾选时只完成文件更新，板端推流服务会保持停止状态。
 - `yolo_apps/` 已加入 `.gitignore`，默认不会被 git 跟踪/提交，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹内即可。
