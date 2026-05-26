@@ -70,6 +70,7 @@ class RTSPToolApp:
         self.yolo_packages: dict[str, YoloPackage] = {}
         self.selected_yolo_package = tk.StringVar(value="")
         self.start_after_update = tk.BooleanVar(value=False)
+        self.ai_stream_enabled = tk.BooleanVar(value=False)
         self.yolo_apps_path = yolo_apps_dir(get_app_dir())
         self._operation_in_progress = False
 
@@ -134,6 +135,12 @@ class RTSPToolApp:
         self._add_field(stream_frame, 1, TEXT["device_ip"], self.device_ip)
         self._add_field(stream_frame, 2, TEXT["rtsp_url"], self.rtsp_url)
         self._add_field(stream_frame, 3, TEXT["board_service"], self.service_status)
+        self.ai_stream_check = ttk.Checkbutton(
+            stream_frame,
+            text=TEXT["enable_ai_detection"],
+            variable=self.ai_stream_enabled,
+        )
+        self.ai_stream_check.grid(row=4, column=1, sticky="w", padx=10, pady=4)
 
         yolo_frame = ttk.LabelFrame(self.root, text=TEXT["yolo_package"])
         yolo_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
@@ -334,6 +341,7 @@ class RTSPToolApp:
             return
 
         start_after_update = self.start_after_update.get()
+        ai_enabled = self.ai_stream_enabled.get()
 
         def work() -> None:
             self._ui(self.log, f"正在更新 YOLO 组合包 {package.display_name} 到设备 {device.serial}...")
@@ -345,7 +353,7 @@ class RTSPToolApp:
             self._ui(self.log, f"已更新 YOLO 组合包：{package.display_name}")
             self._ui(self.service_status.set, state_text("stopped"))
             if start_after_update:
-                url = self._inspect_device(device.serial, start_if_needed=True)
+                url = self._inspect_device(device.serial, start_if_needed=True, ai_enabled=ai_enabled)
                 command = self.player.start(url)
                 self._ui(self.log, "已启动 ffplay：" + " ".join(command))
                 self._ui(self._update_button_states)
@@ -430,7 +438,7 @@ class RTSPToolApp:
 
         self._run_background("正在检查所选设备...", work)
 
-    def _inspect_device(self, serial: str, start_if_needed: bool) -> str:
+    def _inspect_device(self, serial: str, start_if_needed: bool, ai_enabled: bool = False) -> str:
         self._ui(self.log, f"正在检查设备 {serial} 上的 {SERVICE_NAME}...")
         if not self.adb.command_exists(serial):
             message = f"板端 PATH 里找不到 {SERVICE_NAME}。请确认 /usr/bin/{SERVICE_NAME} 存在并可执行。"
@@ -442,8 +450,9 @@ class RTSPToolApp:
             self._ui(self.log, f"{SERVICE_NAME} 已经在运行。")
         elif start_if_needed:
             self._ui(self.service_status.set, state_text("starting"))
-            self._ui(self.log, f"正在启动 {SERVICE_NAME}，设备：{serial}...")
-            result = self.adb.start_service(serial)
+            mode_text = "AI 检测 + 推流" if ai_enabled else "仅推流"
+            self._ui(self.log, f"正在以{mode_text}模式启动 {SERVICE_NAME}，设备：{serial}...")
+            result = self.adb.start_service(serial, ai_enabled=ai_enabled)
             if not result.ok:
                 self._ui(self.service_status.set, state_text("start failed"))
                 raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "板端推流服务启动失败。")
@@ -469,9 +478,10 @@ class RTSPToolApp:
         device = self._require_selected_device()
         if not device:
             return
+        ai_enabled = self.ai_stream_enabled.get()
 
         def work() -> None:
-            self._inspect_device(device.serial, start_if_needed=True)
+            self._inspect_device(device.serial, start_if_needed=True, ai_enabled=ai_enabled)
 
         self._run_background("正在启动板端推流服务...", work)
 
@@ -496,9 +506,10 @@ class RTSPToolApp:
         device = self._require_selected_device()
         if not device:
             return
+        ai_enabled = self.ai_stream_enabled.get()
 
         def work() -> None:
-            url = self._inspect_device(device.serial, start_if_needed=True)
+            url = self._inspect_device(device.serial, start_if_needed=True, ai_enabled=ai_enabled)
             command = self.player.start(url)
             self._ui(self.log, "已启动 ffplay：" + " ".join(command))
             self._ui(self._update_button_states)

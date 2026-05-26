@@ -7,9 +7,10 @@
 - 启动时检查可用运行工具：`adb`、`ffplay`、`tkinter`
 - 自动列出 `adb devices`
 - 手动选择设备
-- 检查板端是否能直接运行 `/usr/bin/sample_smart_camera --rtsp-only`
+- 检查板端是否能直接运行 `/usr/bin/sample_smart_camera`
 - 检查板端推流服务是否已运行
-- 未运行时自动执行：`/usr/bin/sample_smart_camera --rtsp-only`
+- 默认以“仅推流”模式启动：`/usr/bin/sample_smart_camera --rtsp-only`
+- 可勾选“启用 AI 检测”，以“AI 检测 + 推流”模式启动：`/usr/bin/sample_smart_camera`
 - 自动读取板端 IP
 - 自动生成：`rtsp://<设备IP>:8554/ch0`
 - 扫描本地 `yolo_apps/yoloApp_*` 应用和模型包
@@ -89,7 +90,7 @@ yolo_apps/
 - `sample_smart_camera` 和 `network_binary.nb` 是一对 app/model，应放在同一个 `yoloApp_xxx` 文件夹内，并保持名称和路径匹配。
 - 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`；工具只会在更新过程中做临时回滚备份，不会为用户长期保留旧文件。
 - 板端需要允许 ADB 写入 `/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。如果 rootfs 只读、权限不足或需要 remount，请先在板端处理好。
-- 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务；不勾选时只完成文件更新，板端推流服务会保持停止状态。
+- 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务，并使用当前“启用 AI 检测”勾选框对应的启动模式；不勾选时只完成文件更新，板端推流服务会保持停止状态。
 - `yolo_apps/` 已加入 `.gitignore`，默认不会被 git 跟踪/提交，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹内即可。
 
 ## 板端要求
@@ -98,15 +99,24 @@ yolo_apps/
 
 ```bash
 sample_smart_camera --rtsp-only
+sample_smart_camera
 ```
 
 也就是你已经放到 `/usr/bin` 并且有执行权限。
 
-软件会通过 ADB 启动这个绝对路径命令：
+软件默认保持原有“仅推流”行为，通过 ADB 启动这个绝对路径命令：
 
 ```bash
 cd /tmp && /usr/bin/sample_smart_camera --rtsp-only >/tmp/sample_smart_camera.log 2>&1
 ```
+
+如果勾选“启用 AI 检测”，软件会改用“AI 检测 + 推流”模式启动：
+
+```bash
+cd /tmp && /usr/bin/sample_smart_camera >/tmp/sample_smart_camera.log 2>&1
+```
+
+切换“启用 AI 检测”不会重启已经运行的板端服务；新模式只会在下一次由工具启动服务时生效。
 
 ## 开发模式依赖
 

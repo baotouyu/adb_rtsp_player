@@ -23,6 +23,7 @@ TEXT = {
     "refresh_yolo_packages": "刷新组合包",
     "update_yolo_package": "更新到板端",
     "start_after_update": "更新后启动推流",
+    "enable_ai_detection": "启用 AI 检测",
 }
 
 STATE_TEXT = {

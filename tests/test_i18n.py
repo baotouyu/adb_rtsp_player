@@ -25,6 +25,7 @@ class I18nTests(unittest.TestCase):
     def test_yolo_package_labels_are_chinese(self):
         self.assertEqual(TEXT["yolo_package"], "模型/App 组合")
         self.assertEqual(TEXT["start_after_update"], "更新后启动推流")
+        self.assertEqual(TEXT["enable_ai_detection"], "启用 AI 检测")
 
     def test_runtime_state_text_is_chinese(self):
         self.assertEqual(STATE_TEXT["unknown"], "未知")

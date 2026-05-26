@@ -76,6 +76,29 @@ class FakePlayer:
         return ["ffplay", url]
 
 
+class FakeInspectAdb:
+    def __init__(self, running=False):
+        self.running = running
+        self.starts = []
+
+    def command_exists(self, serial):
+        return True
+
+    def is_service_running(self, serial):
+        return self.running
+
+    def start_service(self, serial, ai_enabled=False):
+        self.starts.append((serial, ai_enabled))
+        self.running = True
+        return CommandResult(["adb"], 0, "started", "")
+
+    def wait_for_service(self, serial, timeout=8.0, interval=0.5):
+        return self.running
+
+    def discover_ip(self, serial):
+        return "192.168.1.10"
+
+
 class GuiYoloPackageTests(unittest.TestCase):
     def make_app(self, apps_path: Path):
         app = object.__new__(RTSPToolApp)
@@ -99,7 +122,14 @@ class GuiYoloPackageTests(unittest.TestCase):
         path = Path("/tmp") / name
         return YoloPackage(name, display_name, path, path / "sample_smart_camera", path / "network_binary.nb")
 
-    def make_workflow_app(self, package_selected=True, confirm=True, install_result=None, start_after_update=False):
+    def make_workflow_app(
+        self,
+        package_selected=True,
+        confirm=True,
+        install_result=None,
+        start_after_update=False,
+        ai_enabled=False,
+    ):
         app = object.__new__(RTSPToolApp)
         app.root = FakeRoot()
         app.status_text = FakeVar(state_text("ready"))
@@ -113,11 +143,18 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.yolo_packages = {"pkg": package} if package_selected else {}
         app.yolo_apps_path = Path("/tmp/yolo_apps")
         app.start_after_update = FakeVar(start_after_update)
+        app.ai_stream_enabled = FakeVar(ai_enabled)
         app.adb = FakeAdb(install_result)
         app.player = FakePlayer()
         app.logged = []
         app.log = app.logged.append
-        app._inspect_device = lambda serial, start_if_needed: "rtsp://192.168.1.10:8554/ch0"
+        app.inspect_calls = []
+
+        def inspect_device(serial, start_if_needed, ai_enabled=None):
+            app.inspect_calls.append((serial, start_if_needed, ai_enabled))
+            return "rtsp://192.168.1.10:8554/ch0"
+
+        app._inspect_device = inspect_device
         self.messages = []
         self.confirm = confirm
 
@@ -323,6 +360,89 @@ class GuiYoloPackageTests(unittest.TestCase):
 
         self.assertEqual(app.player.started_urls, ["rtsp://192.168.1.10:8554/ch0"])
         self.assertIn("已启动 ffplay：ffplay rtsp://192.168.1.10:8554/ch0", app.logged)
+
+    def test_update_yolo_package_start_after_update_uses_ai_checkbox_mode(self):
+        app, _package, showwarning, showerror, askyesno = self.make_workflow_app(
+            start_after_update=True,
+            ai_enabled=True,
+        )
+        with patch("rtsp_tool.gui.messagebox.showwarning", showwarning), patch(
+            "rtsp_tool.gui.messagebox.showerror", showerror
+        ), patch("rtsp_tool.gui.messagebox.askyesno", askyesno):
+            app.update_yolo_package()
+
+        self.assertEqual(app.inspect_calls, [("abc", True, True)])
+
+    def make_stream_entry_app(self, ai_enabled=False):
+        app = object.__new__(RTSPToolApp)
+        app.devices = {"abc": ADBDevice("abc", "device")}
+        app.selected_serial = FakeVar("abc")
+        app.ai_stream_enabled = FakeVar(ai_enabled)
+        app.logged = []
+        app.log = app.logged.append
+        app._ui = lambda func, *args: func(*args)
+        app._run_background = lambda _message, work: work()
+        app._update_button_states = lambda: None
+        app.player = FakePlayer()
+        calls = []
+
+        def inspect_device(serial, start_if_needed, ai_enabled=None):
+            calls.append((serial, start_if_needed, ai_enabled))
+            return "rtsp://192.168.1.10:8554/ch0"
+
+        app._inspect_device = inspect_device
+        return app, calls
+
+    def test_start_board_service_uses_ai_checkbox_mode(self):
+        app, calls = self.make_stream_entry_app(ai_enabled=True)
+
+        app.start_board_service()
+
+        self.assertEqual(calls, [("abc", True, True)])
+
+    def test_start_playback_uses_ai_checkbox_mode(self):
+        app, calls = self.make_stream_entry_app(ai_enabled=True)
+
+        app.start_playback()
+
+        self.assertEqual(calls, [("abc", True, True)])
+        self.assertEqual(app.player.started_urls, ["rtsp://192.168.1.10:8554/ch0"])
+
+    def make_inspect_app(self, running=False):
+        app = object.__new__(RTSPToolApp)
+        app.service_status = FakeVar(state_text("unknown"))
+        app.device_ip = FakeVar("")
+        app.rtsp_url = FakeVar("")
+        app.adb = FakeInspectAdb(running=running)
+        app.logged = []
+        app.log = app.logged.append
+        app._ui = lambda func, *args: func(*args)
+        return app
+
+    def test_inspect_device_starts_and_logs_ai_detection_mode(self):
+        app = self.make_inspect_app()
+
+        url = app._inspect_device("abc", start_if_needed=True, ai_enabled=True)
+
+        self.assertEqual(url, "rtsp://192.168.1.10:8554/ch0")
+        self.assertEqual(app.adb.starts, [("abc", True)])
+        self.assertIn("AI 检测 + 推流", "\n".join(app.logged))
+
+    def test_inspect_device_starts_and_logs_rtsp_only_mode_by_default(self):
+        app = self.make_inspect_app()
+
+        url = app._inspect_device("abc", start_if_needed=True)
+
+        self.assertEqual(url, "rtsp://192.168.1.10:8554/ch0")
+        self.assertEqual(app.adb.starts, [("abc", False)])
+        self.assertIn("仅推流", "\n".join(app.logged))
+
+    def test_inspect_device_does_not_restart_running_service_when_ai_checkbox_changes(self):
+        app = self.make_inspect_app(running=True)
+
+        app._inspect_device("abc", start_if_needed=True, ai_enabled=True)
+
+        self.assertEqual(app.adb.starts, [])
 
 
 if __name__ == "__main__":

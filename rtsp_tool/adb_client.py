@@ -130,8 +130,9 @@ class ADBClient:
     def service_status_command(self, serial: str) -> list[str]:
         return build_shell_command(self.adb_path, serial, f"pidof {SERVICE_NAME}")
 
-    def start_service_command(self, serial: str) -> list[str]:
-        shell_command = f"cd /tmp && {SERVICE_PATH} {SERVICE_ARGS} >{SERVICE_LOG} 2>&1"
+    def start_service_command(self, serial: str, ai_enabled: bool = False) -> list[str]:
+        service_args = "" if ai_enabled else f" {SERVICE_ARGS}"
+        shell_command = f"cd /tmp && {SERVICE_PATH}{service_args} >{SERVICE_LOG} 2>&1"
         return build_shell_command(self.adb_path, serial, shell_command)
 
     def stop_service_command(self, serial: str, ignore_missing: bool = False) -> list[str]:
@@ -178,8 +179,8 @@ class ADBClient:
             time.sleep(interval)
         return self.is_service_running(serial)
 
-    def start_service(self, serial: str) -> CommandResult:
-        command = self.start_service_command(serial)
+    def start_service(self, serial: str, ai_enabled: bool = False) -> CommandResult:
+        command = self.start_service_command(serial, ai_enabled=ai_enabled)
         existing = self._service_processes.get(serial)
         if existing and existing.poll() is None:
             return CommandResult(command, 0, "started", "")

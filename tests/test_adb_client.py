@@ -96,6 +96,20 @@ wlan0     Link encap:Ethernet
             ["adb", "-s", "abc123", "shell", "pkill sample_smart_camera || true"],
         )
 
+    def test_start_service_command_omits_rtsp_only_when_ai_detection_is_enabled(self):
+        client = ADBClient(adb_path="adb")
+
+        self.assertEqual(
+            client.start_service_command("abc123", ai_enabled=True),
+            [
+                "adb",
+                "-s",
+                "abc123",
+                "shell",
+                "cd /tmp && /usr/bin/sample_smart_camera >/tmp/sample_smart_camera.log 2>&1",
+            ],
+        )
+
     def test_yolo_install_commands_are_exact(self):
         client = ADBClient(adb_path="adb")
 
@@ -231,6 +245,25 @@ wlan0     Link encap:Ethernet
         )
         self.assertTrue(result.ok)
         self.assertEqual(result.stdout, "started")
+
+    def test_start_service_launches_ai_detection_mode(self):
+        client = ADBClient(adb_path="adb")
+
+        with patch("rtsp_tool.adb_client.subprocess.Popen") as popen:
+            result = client.start_service("abc123", ai_enabled=True)
+
+        popen.assert_called_once_with(
+            [
+                "adb",
+                "-s",
+                "abc123",
+                "shell",
+                "cd /tmp && /usr/bin/sample_smart_camera >/tmp/sample_smart_camera.log 2>&1",
+            ],
+            stdout=-3,
+            stderr=-3,
+        )
+        self.assertTrue(result.ok)
 
     def test_wait_for_service_polls_until_pid_appears(self):
         client = ADBClient(adb_path="adb")
