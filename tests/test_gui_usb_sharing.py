@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 from contextlib import ExitStack
+import tempfile
+import tkinter as tk
 import unittest
 from unittest.mock import patch
 
+from rtsp_tool.dependencies import DependencyStatus
 from rtsp_tool.gui import RTSPToolApp
 from rtsp_tool.i18n import TEXT
 from rtsp_tool.windows_ics import NetworkAdapter
@@ -96,6 +99,31 @@ def fake_widget_type(kind):
 
 
 class GuiUsbSharingTests(unittest.TestCase):
+    def make_missing_dependencies(self):
+        return {
+            "adb": DependencyStatus(
+                name="adb",
+                found=False,
+                path=None,
+                message="not found in bundled tools or PATH",
+                source="missing",
+            ),
+            "ffplay": DependencyStatus(
+                name="ffplay",
+                found=False,
+                path=None,
+                message="not found in bundled tools or PATH",
+                source="missing",
+            ),
+            "tkinter": DependencyStatus(
+                name="tkinter",
+                found=True,
+                path="python stdlib",
+                message="found",
+                source="stdlib",
+            ),
+        }
+
     def make_app(self, *, windows=True, selected_adapters=True, usable_device=True, busy=False):
         app = object.__new__(RTSPToolApp)
         app.dependencies = {"adb": SimpleNamespace(found=True), "ffplay": SimpleNamespace(found=True)}
@@ -139,6 +167,30 @@ class GuiUsbSharingTests(unittest.TestCase):
         ):
             setattr(app, name, FakeButton())
         return app
+
+    def test_default_geometry_keeps_bottom_rows_visible(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+
+        self.addCleanup(root.destroy)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("rtsp_tool.gui.check_dependencies", return_value=self.make_missing_dependencies()):
+                with patch("rtsp_tool.gui.get_app_dir", return_value=temp_dir):
+                    app = RTSPToolApp(root)
+
+            root.withdraw()
+            root.update_idletasks()
+
+            root_height = root.winfo_height()
+            controls = root.grid_slaves(row=5, column=0)[0]
+            log_frame = root.grid_slaves(row=6, column=0)[0]
+            status_bar = root.grid_slaves(row=7, column=0)[0]
+
+            for widget in (controls, log_frame, status_bar):
+                self.assertLessEqual(widget.winfo_y() + widget.winfo_height(), root_height)
+            self.assertGreaterEqual(app.log_text.winfo_height(), 80)
 
     def test_build_ui_adds_usb_sharing_section_and_expected_rows(self):
         app = object.__new__(RTSPToolApp)
@@ -316,6 +368,41 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(app.selected_internet_adapter.get(), "")
         self.assertEqual(app.selected_usb_adapter.get(), "")
         self.assertEqual(app.configure_usb_sharing_button.state, "disabled")
+
+    def test_replace_network_adapters_without_candidates_clears_stale_selection(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+
+        app._replace_network_adapters([])
+
+        self.assertEqual(app.internet_adapter_combo.values, ())
+        self.assertEqual(app.usb_adapter_combo.values, ())
+        self.assertEqual(app.selected_internet_adapter.get(), "")
+        self.assertEqual(app.selected_usb_adapter.get(), "")
+        self.assertIsNone(app._selected_internet_adapter())
+        self.assertIsNone(app._selected_usb_adapter())
+        self.assertIn("未检测到可用于上网的 Windows 网卡。", "\n".join(app.logged))
+        self.assertIn("未检测到板子 USB 网卡。请确认 USB 网络/RNDIS 已连接。", "\n".join(app.logged))
+        self.assertEqual(app.configure_usb_sharing_button.state, "disabled")
+
+    def test_task7_placeholder_actions_update_status_and_log_not_executed(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+
+        actions = (
+            app.configure_usb_sharing,
+            app.open_manual_network_settings,
+            app.detect_usb0_ip,
+        )
+        for action in actions:
+            app.logged.clear()
+            app.usb_sharing_status.set("")
+
+            action()
+
+            combined_log = "\n".join(app.logged)
+            self.assertIn("尚未执行", app.usb_sharing_status.get())
+            self.assertIn("将在后续步骤实现", app.usb_sharing_status.get())
+            self.assertIn("尚未执行", combined_log)
+            self.assertIn("将在后续步骤实现", combined_log)
 
     def test_detect_network_adapters_skips_on_non_windows(self):
         app = self.make_app(windows=False)

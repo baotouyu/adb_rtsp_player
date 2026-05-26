@@ -61,8 +61,8 @@ class RTSPToolApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(TEXT["app_title"])
-        self.root.geometry("920x680")
-        self.root.minsize(760, 560)
+        self.root.geometry("920x880")
+        self.root.minsize(760, 760)
 
         self.dependencies = check_dependencies()
         adb_path = self.dependencies["adb"].path or "adb"
@@ -122,7 +122,7 @@ class RTSPToolApp:
             device_frame,
             columns=("serial", "state"),
             show="headings",
-            height=6,
+            height=3,
             selectmode="browse",
         )
         self.device_tree.heading("serial", text=TEXT["serial"])
@@ -406,13 +406,18 @@ class RTSPToolApp:
         return ""
 
     def configure_usb_sharing(self) -> None:
-        self.log("自动配置 USB 网络共享将在后续任务实现。")
+        self._show_usb_sharing_placeholder("自动配置 USB 网络共享")
 
     def open_manual_network_settings(self) -> None:
-        self.log("打开手动网络设置将在后续任务实现。")
+        self._show_usb_sharing_placeholder("打开手动网络设置")
 
     def detect_usb0_ip(self) -> None:
-        self.log("检测 usb0 IP 将在后续任务实现。")
+        self._show_usb_sharing_placeholder("检测 usb0 IP")
+
+    def _show_usb_sharing_placeholder(self, action: str) -> None:
+        message = f"{action}功能尚未执行，将在后续步骤实现；当前不会修改系统或设备。"
+        self.usb_sharing_status.set(message)
+        self.log(message)
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         if getattr(self, "_operation_in_progress", False):
