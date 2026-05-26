@@ -5,6 +5,7 @@ TEXT = {
     "dependencies": "依赖检测",
     "devices": "ADB 设备",
     "stream": "推流信息",
+    "yolo_package": "模型/App 组合",
     "controls": "操作",
     "log": "运行日志",
     "serial": "设备序列号",
@@ -19,6 +20,9 @@ TEXT = {
     "start_playback": "开始播放",
     "stop_playback": "停止播放",
     "copy_rtsp_url": "复制 RTSP 地址",
+    "refresh_yolo_packages": "刷新组合包",
+    "update_yolo_package": "更新到板端",
+    "start_after_update": "更新后启动推流",
 }
 
 STATE_TEXT = {

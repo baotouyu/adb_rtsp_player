@@ -19,6 +19,12 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(TEXT["start_playback"], "开始播放")
         self.assertEqual(TEXT["stop_playback"], "停止播放")
         self.assertEqual(TEXT["copy_rtsp_url"], "复制 RTSP 地址")
+        self.assertEqual(TEXT["refresh_yolo_packages"], "刷新组合包")
+        self.assertEqual(TEXT["update_yolo_package"], "更新到板端")
+
+    def test_yolo_package_labels_are_chinese(self):
+        self.assertEqual(TEXT["yolo_package"], "模型/App 组合")
+        self.assertEqual(TEXT["start_after_update"], "更新后启动推流")
 
     def test_runtime_state_text_is_chinese(self):
         self.assertEqual(STATE_TEXT["unknown"], "未知")

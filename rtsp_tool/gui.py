@@ -8,9 +8,10 @@ from tkinter import messagebox, ttk
 from typing import Callable, TypeVar
 
 from .adb_client import ADBClient, ADBDevice, SERVICE_LOG, SERVICE_NAME
-from .dependencies import DependencyStatus, check_dependencies
+from .dependencies import DependencyStatus, check_dependencies, get_app_dir
 from .i18n import TEXT, device_state_text, state_text
 from .player import PlayerController, build_rtsp_url
+from .yolo_package import YoloPackage, scan_yolo_packages, yolo_apps_dir
 
 
 T = TypeVar("T")
@@ -66,9 +67,14 @@ class RTSPToolApp:
         self.service_status = tk.StringVar(value=state_text("unknown"))
         self.status_text = tk.StringVar(value=state_text("ready"))
         self.dep_vars: dict[str, tk.StringVar] = {}
+        self.yolo_packages: dict[str, YoloPackage] = {}
+        self.selected_yolo_package = tk.StringVar(value="")
+        self.start_after_update = tk.BooleanVar(value=False)
+        self.yolo_apps_path = yolo_apps_dir(get_app_dir())
 
         self._build_ui()
         self._render_dependency_status()
+        self.refresh_yolo_packages()
         self._update_button_states()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -79,7 +85,7 @@ class RTSPToolApp:
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(4, weight=1)
+        self.root.rowconfigure(5, weight=1)
 
         dep_frame = ttk.LabelFrame(self.root, text=TEXT["dependencies"])
         dep_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
@@ -128,8 +134,32 @@ class RTSPToolApp:
         self._add_field(stream_frame, 2, TEXT["rtsp_url"], self.rtsp_url)
         self._add_field(stream_frame, 3, TEXT["board_service"], self.service_status)
 
+        yolo_frame = ttk.LabelFrame(self.root, text=TEXT["yolo_package"])
+        yolo_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
+        yolo_frame.columnconfigure(0, weight=1)
+        self.yolo_package_combo = ttk.Combobox(
+            yolo_frame,
+            textvariable=self.selected_yolo_package,
+            state="readonly",
+            values=(),
+        )
+        self.yolo_package_combo.grid(row=0, column=0, sticky="ew", padx=(8, 6), pady=8)
+        self.yolo_package_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
+        self.refresh_yolo_button = ttk.Button(
+            yolo_frame, text=TEXT["refresh_yolo_packages"], command=self.refresh_yolo_packages
+        )
+        self.update_yolo_button = ttk.Button(
+            yolo_frame, text=TEXT["update_yolo_package"], command=self.update_yolo_package
+        )
+        self.start_after_update_check = ttk.Checkbutton(
+            yolo_frame, text=TEXT["start_after_update"], variable=self.start_after_update
+        )
+        self.refresh_yolo_button.grid(row=0, column=1, sticky="ew", padx=6, pady=8)
+        self.update_yolo_button.grid(row=0, column=2, sticky="ew", padx=6, pady=8)
+        self.start_after_update_check.grid(row=0, column=3, sticky="w", padx=(6, 8), pady=8)
+
         controls = ttk.LabelFrame(self.root, text=TEXT["controls"])
-        controls.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
+        controls.grid(row=4, column=0, sticky="ew", padx=12, pady=6)
         for col in range(5):
             controls.columnconfigure(col, weight=1)
         self.start_service_button = ttk.Button(
@@ -152,7 +182,7 @@ class RTSPToolApp:
         self.copy_button.grid(row=0, column=4, sticky="ew", padx=6, pady=8)
 
         log_frame = ttk.LabelFrame(self.root, text=TEXT["log"])
-        log_frame.grid(row=4, column=0, sticky="nsew", padx=12, pady=(6, 12))
+        log_frame.grid(row=5, column=0, sticky="nsew", padx=12, pady=(6, 12))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, height=12, wrap="word", state="disabled")
@@ -162,7 +192,7 @@ class RTSPToolApp:
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         status_bar = ttk.Label(self.root, textvariable=self.status_text, anchor="w")
-        status_bar.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 8))
+        status_bar.grid(row=6, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     def _add_field(self, parent: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=10, pady=4)
@@ -192,7 +222,10 @@ class RTSPToolApp:
         has_adb = self.dependencies["adb"].found
         has_ffplay = self.dependencies["ffplay"].found
         has_device = bool(self.selected_serial.get())
+        device = self.devices.get(self.selected_serial.get())
+        has_usable_device = bool(device and device.state == "device")
         has_url = bool(self.rtsp_url.get())
+        has_yolo_package = self._selected_yolo_package() is not None
 
         self.refresh_button.configure(state="normal" if has_adb else "disabled")
         state_for_device = "normal" if has_adb and has_device else "disabled"
@@ -201,6 +234,8 @@ class RTSPToolApp:
         self.start_playback_button.configure(state="normal" if has_adb and has_ffplay and has_device else "disabled")
         self.stop_playback_button.configure(state="normal" if self.player.is_running() else "disabled")
         self.copy_button.configure(state="normal" if has_url else "disabled")
+        self.refresh_yolo_button.configure(state="normal")
+        self.update_yolo_button.configure(state="normal" if has_adb and has_usable_device and has_yolo_package else "disabled")
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         self._set_busy(message)
@@ -225,6 +260,82 @@ class RTSPToolApp:
         self.log_text.insert("end", f"[{timestamp}] {message}\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def refresh_yolo_packages(self) -> None:
+        current_selection = self.selected_yolo_package.get()
+        packages = scan_yolo_packages(self.yolo_apps_path)
+        choices = self._build_yolo_package_choices(packages)
+        self.yolo_packages = choices
+        values = tuple(choices)
+        self.yolo_package_combo.configure(values=values)
+
+        if current_selection in choices:
+            self.selected_yolo_package.set(current_selection)
+        elif values:
+            self.selected_yolo_package.set(values[0])
+        else:
+            self.selected_yolo_package.set("")
+
+        if packages:
+            self.log(f"找到 {len(packages)} 个 YOLO 组合包：{self.yolo_apps_path}")
+        else:
+            self.log(f"没有找到 YOLO 组合包。请放到 {self.yolo_apps_path}/yoloApp_xxx/")
+        self._update_button_states()
+
+    def _build_yolo_package_choices(self, packages: list[YoloPackage]) -> dict[str, YoloPackage]:
+        display_counts: dict[str, int] = {}
+        for package in packages:
+            display_counts[package.display_name] = display_counts.get(package.display_name, 0) + 1
+
+        choices: dict[str, YoloPackage] = {}
+        for package in packages:
+            label = package.display_name
+            if display_counts[label] > 1 or label in choices:
+                label = f"{package.display_name} ({package.name})"
+            choices[label] = package
+        return choices
+
+    def _selected_yolo_package(self) -> YoloPackage | None:
+        return self.yolo_packages.get(self.selected_yolo_package.get())
+
+    def update_yolo_package(self) -> None:
+        device = self._require_selected_device()
+        if not device:
+            return
+        package = self._selected_yolo_package()
+        if not package:
+            messagebox.showwarning(
+                "未选择组合包",
+                f"请把组合包放到 {self.yolo_apps_path}/yoloApp_xxx/，然后选择一个模型/App 组合。",
+            )
+            return
+
+        confirmed = messagebox.askyesno(
+            "确认更新组合包",
+            "这会覆盖板端 /usr/bin/sample_smart_camera 和 /network_binary.nb。\n"
+            f"确定更新为 {package.display_name} 吗？",
+        )
+        if not confirmed:
+            return
+
+        start_after_update = self.start_after_update.get()
+
+        def work() -> None:
+            self._ui(self.log, f"正在更新 YOLO 组合包 {package.display_name} 到设备 {device.serial}...")
+            result = self.adb.install_yolo_package(device.serial, str(package.app_path), str(package.model_path))
+            if not result.ok:
+                detail = result.stderr.strip() or result.stdout.strip() or "组合包更新命令返回非 0 状态。"
+                raise RuntimeError(detail)
+
+            self._ui(self.log, f"已更新 YOLO 组合包：{package.display_name}")
+            self._ui(self.service_status.set, state_text("stopped"))
+            if start_after_update:
+                url = self._inspect_device(device.serial, start_if_needed=True)
+                command = self.player.start(url)
+                self._ui(self.log, "已启动 ffplay：" + " ".join(command))
+                self._ui(self._update_button_states)
+
+        self._run_background("正在更新 YOLO 组合包...", work)
 
     def refresh_devices(self) -> None:
         def work() -> None:
