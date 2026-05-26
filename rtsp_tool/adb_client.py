@@ -14,6 +14,7 @@ SERVICE_LOG = "/tmp/sample_smart_camera.log"
 YOLO_UPDATE_DIR = "/tmp/yolo_app_update"
 YOLO_APP_REMOTE_PATH = SERVICE_PATH
 YOLO_MODEL_REMOTE_PATH = "/network_binary.nb"
+YOLO_INSTALL_TIMEOUT = 120.0
 
 
 @dataclass(frozen=True)
@@ -200,13 +201,13 @@ class ADBClient:
             return last_result
 
         steps = [
-            self.prepare_yolo_update_command(serial)[1:],
-            self.push_yolo_file_command(serial, app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera")[1:],
-            self.push_yolo_file_command(serial, model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb")[1:],
-            self.install_yolo_update_command(serial)[1:],
+            (self.prepare_yolo_update_command(serial)[1:], None),
+            (self.push_yolo_file_command(serial, app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera")[1:], YOLO_INSTALL_TIMEOUT),
+            (self.push_yolo_file_command(serial, model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb")[1:], YOLO_INSTALL_TIMEOUT),
+            (self.install_yolo_update_command(serial)[1:], YOLO_INSTALL_TIMEOUT),
         ]
-        for step in steps:
-            last_result = self.run(step)
+        for step, timeout in steps:
+            last_result = self.run(step, timeout=timeout)
             if not last_result.ok:
                 return last_result
         return last_result

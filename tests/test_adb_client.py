@@ -5,6 +5,7 @@ from rtsp_tool.adb_client import (
     ADBClient,
     ADBDevice,
     YOLO_APP_REMOTE_PATH,
+    YOLO_INSTALL_TIMEOUT,
     YOLO_MODEL_REMOTE_PATH,
     YOLO_UPDATE_DIR,
     build_shell_command,
@@ -134,8 +135,8 @@ wlan0     Link encap:Ethernet
             [
                 ((["-s", "abc123", "shell", "pkill sample_smart_camera || true"]), None),
                 ((["-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"]), None),
-                ((["-s", "abc123", "push", "/local/yoloApp_苹果/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"]), None),
-                ((["-s", "abc123", "push", "/local/yoloApp_苹果/network_binary.nb", "/tmp/yolo_app_update/network_binary.nb"]), None),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"]), YOLO_INSTALL_TIMEOUT),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/network_binary.nb", "/tmp/yolo_app_update/network_binary.nb"]), YOLO_INSTALL_TIMEOUT),
                 ((
                     [
                         "-s",
@@ -145,7 +146,7 @@ wlan0     Link encap:Ethernet
                         "cp /tmp/yolo_app_update/network_binary.nb /network_binary.nb && "
                         "chmod +x /usr/bin/sample_smart_camera && sync && rm -rf /tmp/yolo_app_update",
                     ]
-                ), None),
+                ), YOLO_INSTALL_TIMEOUT),
             ],
         )
 
