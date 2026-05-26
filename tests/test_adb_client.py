@@ -350,6 +350,28 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
         ip_addr.assert_called_once_with("abc123")
         ifconfig.assert_called_once_with("abc123")
 
+    def test_discover_usb0_ip_falls_back_when_ip_addr_has_no_valid_ip(self):
+        client = ADBClient(adb_path="adb")
+        ip_addr_result = CommandResult(
+            ["adb"],
+            0,
+            "4: usb0: <UP> mtu 1500\n    inet 169.254.8.9/16 scope link usb0\n",
+            "",
+        )
+        ifconfig_result = CommandResult(
+            ["adb"],
+            0,
+            "usb0      Link encap:Ethernet\n          inet addr:192.168.137.33  Mask:255.255.255.0\n",
+            "",
+        )
+
+        with patch.object(client, "get_usb0_ip_addr_output", return_value=ip_addr_result) as ip_addr:
+            with patch.object(client, "get_usb0_ifconfig_output", return_value=ifconfig_result) as ifconfig:
+                self.assertEqual(client.discover_usb0_ip("abc123"), "192.168.137.33")
+
+        ip_addr.assert_called_once_with("abc123")
+        ifconfig.assert_called_once_with("abc123")
+
     def test_discover_usb0_ip_prefers_ip_addr_when_present(self):
         client = ADBClient(adb_path="adb")
         ip_addr_result = CommandResult(
