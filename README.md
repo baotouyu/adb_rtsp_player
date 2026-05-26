@@ -72,7 +72,7 @@ tools/ffmpeg/ffplay.exe
 
 ## YOLO App 和模型包更新
 
-本工具可以扫描本地 `yolo_apps/yoloApp_*` 目录，把一组配套的 YOLO app 和模型更新到板端。推荐把 `yolo_apps/` 放在源码目录旁边；Windows 免安装版用户也可以把它放在 exe 所在的应用文件夹旁边。
+本工具可以扫描本地 `yolo_apps/yoloApp_*` 目录，把一组配套的 YOLO app 和模型更新到板端。源码运行时，把 `yolo_apps/` 放在项目根目录下；Windows 免安装版用户把它放在 `ADB_RTSP_Player.exe` 同一层目录下。
 
 本地目录格式示例：
 
@@ -87,9 +87,10 @@ yolo_apps/
 
 - 文件夹名使用 `yoloApp_xxx`，其中 `xxx` 用来描述检测目标，例如 `yoloApp_苹果`。
 - `sample_smart_camera` 和 `network_binary.nb` 是一对 app/model，应放在同一个 `yoloApp_xxx` 文件夹内，并保持名称和路径匹配。
-- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。
-- 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务；不勾选时只完成文件更新。
-- `yolo_apps/` 已加入 `.gitignore`，不会提交到 git，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹旁边即可。
+- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`；工具不会自动备份旧文件。
+- 板端需要允许 ADB 写入 `/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。如果 rootfs 只读、权限不足或需要 remount，请先在板端处理好。
+- 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务；不勾选时只完成文件更新，板端推流服务会保持停止状态。
+- `yolo_apps/` 已加入 `.gitignore`，默认不会被 git 跟踪/提交，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹内即可。
 
 ## 板端要求
 
