@@ -61,8 +61,8 @@ class RTSPToolApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(TEXT["app_title"])
-        self.root.geometry("920x880")
-        self.root.minsize(760, 760)
+        self.root.geometry("920x720")
+        self.root.minsize(760, 640)
 
         self.dependencies = check_dependencies()
         adb_path = self.dependencies["adb"].path or "adb"
@@ -110,11 +110,11 @@ class RTSPToolApp:
         for index, name in enumerate(("adb", "ffplay", "tkinter")):
             self.dep_vars[name] = tk.StringVar(value=f"{name}: {state_text('checking')}")
             ttk.Label(dep_frame, textvariable=self.dep_vars[name]).grid(
-                row=0, column=index, sticky="w", padx=10, pady=8
+                row=0, column=index, sticky="w", padx=10, pady=4
             )
 
         device_frame = ttk.LabelFrame(self.root, text=TEXT["devices"])
-        device_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=6)
+        device_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=4)
         device_frame.columnconfigure(0, weight=1)
         device_frame.rowconfigure(0, weight=1)
 
@@ -129,26 +129,26 @@ class RTSPToolApp:
         self.device_tree.heading("state", text=TEXT["state"])
         self.device_tree.column("serial", width=520, anchor="w")
         self.device_tree.column("state", width=140, anchor="center")
-        self.device_tree.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        self.device_tree.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=4)
         self.device_tree.bind("<<TreeviewSelect>>", self.on_device_selected)
 
         device_scroll = ttk.Scrollbar(device_frame, orient="vertical", command=self.device_tree.yview)
-        device_scroll.grid(row=0, column=1, sticky="ns", pady=8)
+        device_scroll.grid(row=0, column=1, sticky="ns", pady=4)
         self.device_tree.configure(yscrollcommand=device_scroll.set)
 
         device_buttons = ttk.Frame(device_frame)
-        device_buttons.grid(row=0, column=2, sticky="ns", padx=8, pady=8)
+        device_buttons.grid(row=0, column=2, sticky="ns", padx=8, pady=4)
         self.refresh_button = ttk.Button(
             device_buttons, text=TEXT["refresh_devices"], command=self.refresh_devices
         )
         self.refresh_button.grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
         usb_frame = ttk.LabelFrame(self.root, text=TEXT["usb_sharing"])
-        usb_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=6)
+        usb_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
         usb_frame.columnconfigure(1, weight=1)
         usb_frame.columnconfigure(3, weight=1)
         ttk.Label(usb_frame, text=TEXT["internet_adapter"]).grid(
-            row=0, column=0, sticky="w", padx=(10, 6), pady=(8, 4)
+            row=0, column=0, sticky="w", padx=(10, 6), pady=(4, 2)
         )
         self.internet_adapter_combo = ttk.Combobox(
             usb_frame,
@@ -156,10 +156,10 @@ class RTSPToolApp:
             state="readonly",
             values=(),
         )
-        self.internet_adapter_combo.grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=(8, 4))
+        self.internet_adapter_combo.grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=(4, 2))
         self.internet_adapter_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
         ttk.Label(usb_frame, text=TEXT["usb_adapter"]).grid(
-            row=0, column=2, sticky="w", padx=(10, 6), pady=(8, 4)
+            row=0, column=2, sticky="w", padx=(10, 6), pady=(4, 2)
         )
         self.usb_adapter_combo = ttk.Combobox(
             usb_frame,
@@ -167,7 +167,7 @@ class RTSPToolApp:
             state="readonly",
             values=(),
         )
-        self.usb_adapter_combo.grid(row=0, column=3, sticky="ew", padx=(0, 10), pady=(8, 4))
+        self.usb_adapter_combo.grid(row=0, column=3, sticky="ew", padx=(0, 10), pady=(4, 2))
         self.usb_adapter_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
 
         self.detect_adapters_button = ttk.Button(
@@ -182,30 +182,34 @@ class RTSPToolApp:
         self.detect_usb0_button = ttk.Button(
             usb_frame, text=TEXT["detect_usb0_ip"], command=self.detect_usb0_ip
         )
-        self.detect_adapters_button.grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=4)
-        self.configure_usb_sharing_button.grid(row=1, column=1, sticky="ew", padx=6, pady=4)
-        self.manual_network_settings_button.grid(row=1, column=2, sticky="ew", padx=6, pady=4)
-        self.detect_usb0_button.grid(row=1, column=3, sticky="ew", padx=(6, 10), pady=4)
+        self.detect_adapters_button.grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=2)
+        self.configure_usb_sharing_button.grid(row=1, column=1, sticky="ew", padx=6, pady=2)
+        self.manual_network_settings_button.grid(row=1, column=2, sticky="ew", padx=6, pady=2)
+        self.detect_usb0_button.grid(row=1, column=3, sticky="ew", padx=(6, 10), pady=2)
         ttk.Label(usb_frame, textvariable=self.usb_sharing_status, anchor="w").grid(
-            row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 8)
+            row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=(2, 4)
         )
 
         stream_frame = ttk.LabelFrame(self.root, text=TEXT["stream"])
-        stream_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
+        stream_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=4)
         stream_frame.columnconfigure(1, weight=1)
-        self._add_field(stream_frame, 0, TEXT["selected_device"], self.selected_serial)
-        self._add_field(stream_frame, 1, TEXT["device_ip"], self.device_ip)
-        self._add_field(stream_frame, 2, TEXT["rtsp_url"], self.rtsp_url)
-        self._add_field(stream_frame, 3, TEXT["board_service"], self.service_status)
+        stream_frame.columnconfigure(3, weight=1)
+        self._add_compact_field(stream_frame, 0, 0, TEXT["selected_device"], self.selected_serial)
+        self._add_compact_field(stream_frame, 0, 2, TEXT["device_ip"], self.device_ip)
+        ttk.Label(stream_frame, text=TEXT["rtsp_url"]).grid(row=1, column=0, sticky="w", padx=10, pady=2)
+        ttk.Label(stream_frame, textvariable=self.rtsp_url).grid(
+            row=1, column=1, columnspan=3, sticky="ew", padx=10, pady=2
+        )
+        self._add_compact_field(stream_frame, 2, 0, TEXT["board_service"], self.service_status)
         self.ai_stream_check = ttk.Checkbutton(
             stream_frame,
             text=TEXT["enable_ai_detection"],
             variable=self.ai_stream_enabled,
         )
-        self.ai_stream_check.grid(row=4, column=1, sticky="w", padx=10, pady=4)
+        self.ai_stream_check.grid(row=2, column=2, columnspan=2, sticky="w", padx=10, pady=2)
 
         yolo_frame = ttk.LabelFrame(self.root, text=TEXT["yolo_package"])
-        yolo_frame.grid(row=4, column=0, sticky="ew", padx=12, pady=6)
+        yolo_frame.grid(row=4, column=0, sticky="ew", padx=12, pady=4)
         yolo_frame.columnconfigure(0, weight=1)
         self.yolo_package_combo = ttk.Combobox(
             yolo_frame,
@@ -213,7 +217,7 @@ class RTSPToolApp:
             state="readonly",
             values=(),
         )
-        self.yolo_package_combo.grid(row=0, column=0, sticky="ew", padx=(8, 6), pady=8)
+        self.yolo_package_combo.grid(row=0, column=0, sticky="ew", padx=(8, 6), pady=4)
         self.yolo_package_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
         self.refresh_yolo_button = ttk.Button(
             yolo_frame, text=TEXT["refresh_yolo_packages"], command=self.refresh_yolo_packages
@@ -224,12 +228,12 @@ class RTSPToolApp:
         self.start_after_update_check = ttk.Checkbutton(
             yolo_frame, text=TEXT["start_after_update"], variable=self.start_after_update
         )
-        self.refresh_yolo_button.grid(row=0, column=1, sticky="ew", padx=6, pady=8)
-        self.update_yolo_button.grid(row=0, column=2, sticky="ew", padx=6, pady=8)
-        self.start_after_update_check.grid(row=0, column=3, sticky="w", padx=(6, 8), pady=8)
+        self.refresh_yolo_button.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
+        self.update_yolo_button.grid(row=0, column=2, sticky="ew", padx=6, pady=4)
+        self.start_after_update_check.grid(row=0, column=3, sticky="w", padx=(6, 8), pady=4)
 
         controls = ttk.LabelFrame(self.root, text=TEXT["controls"])
-        controls.grid(row=5, column=0, sticky="ew", padx=12, pady=6)
+        controls.grid(row=5, column=0, sticky="ew", padx=12, pady=4)
         for col in range(5):
             controls.columnconfigure(col, weight=1)
         self.start_service_button = ttk.Button(
@@ -245,28 +249,32 @@ class RTSPToolApp:
             controls, text=TEXT["stop_playback"], command=self.stop_playback
         )
         self.copy_button = ttk.Button(controls, text=TEXT["copy_rtsp_url"], command=self.copy_rtsp_url)
-        self.start_service_button.grid(row=0, column=0, sticky="ew", padx=6, pady=8)
-        self.stop_service_button.grid(row=0, column=1, sticky="ew", padx=6, pady=8)
-        self.start_playback_button.grid(row=0, column=2, sticky="ew", padx=6, pady=8)
-        self.stop_playback_button.grid(row=0, column=3, sticky="ew", padx=6, pady=8)
-        self.copy_button.grid(row=0, column=4, sticky="ew", padx=6, pady=8)
+        self.start_service_button.grid(row=0, column=0, sticky="ew", padx=6, pady=4)
+        self.stop_service_button.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
+        self.start_playback_button.grid(row=0, column=2, sticky="ew", padx=6, pady=4)
+        self.stop_playback_button.grid(row=0, column=3, sticky="ew", padx=6, pady=4)
+        self.copy_button.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
 
         log_frame = ttk.LabelFrame(self.root, text=TEXT["log"])
-        log_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=(6, 12))
+        log_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=(4, 6))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        self.log_text = tk.Text(log_frame, height=12, wrap="word", state="disabled")
-        self.log_text.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        self.log_text = tk.Text(log_frame, height=8, wrap="word", state="disabled")
+        self.log_text.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=4)
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
-        log_scroll.grid(row=0, column=1, sticky="ns", pady=8)
+        log_scroll.grid(row=0, column=1, sticky="ns", pady=4)
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         status_bar = ttk.Label(self.root, textvariable=self.status_text, anchor="w")
         status_bar.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 8))
 
-    def _add_field(self, parent: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=10, pady=4)
-        ttk.Label(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=10, pady=4)
+    def _add_compact_field(
+        self, parent: ttk.Frame, row: int, column: int, label: str, variable: tk.StringVar
+    ) -> None:
+        ttk.Label(parent, text=label).grid(row=row, column=column, sticky="w", padx=10, pady=2)
+        ttk.Label(parent, textvariable=variable).grid(
+            row=row, column=column + 1, sticky="ew", padx=10, pady=2
+        )
 
     def _render_dependency_status(self) -> None:
         for name, status in self.dependencies.items():
@@ -392,7 +400,10 @@ class RTSPToolApp:
         else:
             self.log("未检测到板子 USB 网卡。请确认 USB 网络/RNDIS 已连接。")
 
-        self.usb_sharing_status.set("请选择网卡后配置 USB 网络共享。")
+        if internet_values or usb_values:
+            self.usb_sharing_status.set("请选择网卡后配置 USB 网络共享。")
+        else:
+            self.usb_sharing_status.set("未检测到可用网卡。请检查网络和 USB/RNDIS 连接后重新检测。")
         self._update_button_states()
 
     def _adapter_label_for_choice(

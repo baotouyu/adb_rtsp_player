@@ -168,6 +168,66 @@ class GuiUsbSharingTests(unittest.TestCase):
             setattr(app, name, FakeButton())
         return app
 
+    def make_real_app(self, root):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("rtsp_tool.gui.check_dependencies", return_value=self.make_missing_dependencies()):
+                with patch("rtsp_tool.gui.get_app_dir", return_value=temp_dir):
+                    return RTSPToolApp(root)
+
+    def assert_bottom_rows_visible(self, root, app, *, min_log_text_height):
+        root.update_idletasks()
+
+        root_height = root.winfo_height()
+        controls = root.grid_slaves(row=5, column=0)[0]
+        log_frame = root.grid_slaves(row=6, column=0)[0]
+        status_bar = root.grid_slaves(row=7, column=0)[0]
+
+        for widget in (controls, log_frame, status_bar):
+            self.assertLessEqual(widget.winfo_y() + widget.winfo_height(), root_height)
+        self.assertGreaterEqual(app.log_text.winfo_height(), min_log_text_height)
+
+    def test_laptop_geometry_keeps_bottom_rows_visible(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+
+        self.addCleanup(root.destroy)
+        app = self.make_real_app(root)
+
+        root.geometry("920x720")
+        root.update_idletasks()
+        root.withdraw()
+        root.update_idletasks()
+
+        self.assertLessEqual(root.winfo_height(), 720)
+        self.assert_bottom_rows_visible(root, app, min_log_text_height=80)
+
+    def test_minimum_geometry_keeps_controls_status_and_some_log_visible(self):
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+
+        self.addCleanup(root.destroy)
+        app = self.make_real_app(root)
+
+        root.geometry("760x640")
+        root.update_idletasks()
+        root.withdraw()
+        root.update_idletasks()
+
+        self.assertLessEqual(root.winfo_height(), 640)
+        root_height = root.winfo_height()
+        controls = root.grid_slaves(row=5, column=0)[0]
+        log_frame = root.grid_slaves(row=6, column=0)[0]
+        status_bar = root.grid_slaves(row=7, column=0)[0]
+
+        self.assertLessEqual(controls.winfo_y() + controls.winfo_height(), root_height)
+        self.assertGreater(log_frame.winfo_height(), 0)
+        self.assertLessEqual(status_bar.winfo_y() + status_bar.winfo_height(), root_height)
+        self.assertGreater(app.log_text.winfo_height(), 0)
+
     def test_default_geometry_keeps_bottom_rows_visible(self):
         try:
             root = tk.Tk()
@@ -175,22 +235,14 @@ class GuiUsbSharingTests(unittest.TestCase):
             self.skipTest(f"Tk display unavailable: {exc}")
 
         self.addCleanup(root.destroy)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("rtsp_tool.gui.check_dependencies", return_value=self.make_missing_dependencies()):
-                with patch("rtsp_tool.gui.get_app_dir", return_value=temp_dir):
-                    app = RTSPToolApp(root)
+        app = self.make_real_app(root)
 
-            root.withdraw()
-            root.update_idletasks()
+        root.update_idletasks()
+        root.withdraw()
+        root.update_idletasks()
 
-            root_height = root.winfo_height()
-            controls = root.grid_slaves(row=5, column=0)[0]
-            log_frame = root.grid_slaves(row=6, column=0)[0]
-            status_bar = root.grid_slaves(row=7, column=0)[0]
-
-            for widget in (controls, log_frame, status_bar):
-                self.assertLessEqual(widget.winfo_y() + widget.winfo_height(), root_height)
-            self.assertGreaterEqual(app.log_text.winfo_height(), 80)
+        self.assertLessEqual(root.winfo_height(), 720)
+        self.assert_bottom_rows_visible(root, app, min_log_text_height=80)
 
     def test_build_ui_adds_usb_sharing_section_and_expected_rows(self):
         app = object.__new__(RTSPToolApp)
@@ -382,6 +434,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertIsNone(app._selected_usb_adapter())
         self.assertIn("未检测到可用于上网的 Windows 网卡。", "\n".join(app.logged))
         self.assertIn("未检测到板子 USB 网卡。请确认 USB 网络/RNDIS 已连接。", "\n".join(app.logged))
+        self.assertEqual(app.usb_sharing_status.get(), "未检测到可用网卡。请检查网络和 USB/RNDIS 连接后重新检测。")
         self.assertEqual(app.configure_usb_sharing_button.state, "disabled")
 
     def test_task7_placeholder_actions_update_status_and_log_not_executed(self):
