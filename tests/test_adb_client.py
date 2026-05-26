@@ -143,6 +143,32 @@ wlan0     Link encap:Ethernet
             ],
         )
 
+    def test_install_yolo_package_cleans_up_local_service_before_prepare(self):
+        client = ADBClient(adb_path="adb")
+        events = []
+
+        def fake_run(args, timeout=None):
+            events.append(("run", list(args)))
+            return type("Result", (), {"ok": True, "stderr": "", "stdout": ""})()
+
+        def fake_stop_local_service_process(serial):
+            events.append(("cleanup", serial))
+
+        with patch.object(client, "run", side_effect=fake_run):
+            with patch.object(client, "stop_local_service_process", side_effect=fake_stop_local_service_process) as cleanup:
+                result = client.install_yolo_package("abc123", "/local/app", "/local/model")
+
+        self.assertTrue(result.ok)
+        cleanup.assert_called_once_with("abc123")
+        self.assertEqual(
+            events[:3],
+            [
+                ("run", ["-s", "abc123", "shell", "pkill sample_smart_camera || true"]),
+                ("cleanup", "abc123"),
+                ("run", ["-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"]),
+            ],
+        )
+
     def test_install_yolo_package_stops_on_failed_push(self):
         client = ADBClient(adb_path="adb")
         results = [

@@ -192,21 +192,17 @@ class ADBClient:
         return result
 
     def install_yolo_package(self, serial: str, app_path: str, model_path: str) -> CommandResult:
+        last_result = self.run(["-s", serial, "shell", f"pkill {SERVICE_NAME} || true"])
+        self.stop_local_service_process(serial)
+        if not last_result.ok:
+            return last_result
+
         steps = [
-            ["-s", serial, "shell", f"pkill {SERVICE_NAME} || true"],
-            ["-s", serial, "shell", f"rm -rf {YOLO_UPDATE_DIR} && mkdir -p {YOLO_UPDATE_DIR}"],
-            ["-s", serial, "push", app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera"],
-            ["-s", serial, "push", model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb"],
-            [
-                "-s",
-                serial,
-                "shell",
-                f"cp {YOLO_UPDATE_DIR}/sample_smart_camera {YOLO_APP_REMOTE_PATH} && "
-                f"cp {YOLO_UPDATE_DIR}/network_binary.nb {YOLO_MODEL_REMOTE_PATH} && "
-                f"chmod +x {YOLO_APP_REMOTE_PATH} && sync && rm -rf {YOLO_UPDATE_DIR}",
-            ],
+            self.prepare_yolo_update_command(serial)[1:],
+            self.push_yolo_file_command(serial, app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera")[1:],
+            self.push_yolo_file_command(serial, model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb")[1:],
+            self.install_yolo_update_command(serial)[1:],
         ]
-        last_result = CommandResult([], 0, "", "")
         for step in steps:
             last_result = self.run(step)
             if not last_result.ok:
