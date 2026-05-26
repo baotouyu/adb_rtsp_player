@@ -1,0 +1,121 @@
+name: Windows Portable Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "app.py"
+      - "rtsp_tool/**"
+      - "tests/**"
+      - "packaging/windows/**"
+      - "scripts/build_windows.ps1"
+      - "requirements-build.txt"
+      - ".github/workflows/windows-build.yml"
+  pull_request:
+    paths:
+      - "app.py"
+      - "rtsp_tool/**"
+      - "tests/**"
+      - "packaging/windows/**"
+      - "scripts/build_windows.ps1"
+      - "requirements-build.txt"
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows portable zip
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build requirements
+        shell: pwsh
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Download bundled adb and ffplay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $ToolsDir = Join-Path $env:GITHUB_WORKSPACE "tools"
+          $TempDir = $env:RUNNER_TEMP
+          New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+
+          $PlatformToolsUrl = "https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip"
+          $PlatformToolsSha1 = "f29bfb58d0d6f9a57d7dbcba6cc259f9ca6f58f1"
+          $PlatformToolsZip = Join-Path $TempDir "platform-tools_r37.0.0-win.zip"
+          $PlatformToolsExtract = Join-Path $TempDir "platform-tools"
+          Invoke-WebRequest -Uri $PlatformToolsUrl -OutFile $PlatformToolsZip
+          $PlatformToolsActualSha1 = (Get-FileHash -Algorithm SHA1 -LiteralPath $PlatformToolsZip).Hash.ToLowerInvariant()
+          if ($PlatformToolsActualSha1 -ne $PlatformToolsSha1) {
+            throw "Platform-tools hash mismatch: expected $PlatformToolsSha1, got $PlatformToolsActualSha1"
+          }
+          Expand-Archive -Force -Path $PlatformToolsZip -DestinationPath $PlatformToolsExtract
+          New-Item -ItemType Directory -Force -Path (Join-Path $ToolsDir "adb") | Out-Null
+          Copy-Item (Join-Path $PlatformToolsExtract "platform-tools\*") (Join-Path $ToolsDir "adb") -Recurse -Force
+
+          $FfmpegUrl = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.1-essentials_build.zip"
+          $FfmpegSha256 = "6f58ce889f59c311410f7d2b18895b33c03456463486f3b1ebc93d97a0f54541"
+          $FfmpegZip = Join-Path $TempDir "ffmpeg-8.1.1-essentials_build.zip"
+          $FfmpegExtract = Join-Path $TempDir "ffmpeg"
+          Invoke-WebRequest -Uri $FfmpegUrl -OutFile $FfmpegZip
+          $FfmpegActualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $FfmpegZip).Hash.ToLowerInvariant()
+          if ($FfmpegActualSha256 -ne $FfmpegSha256) {
+            throw "FFmpeg hash mismatch: expected $FfmpegSha256, got $FfmpegActualSha256"
+          }
+          Expand-Archive -Force -Path $FfmpegZip -DestinationPath $FfmpegExtract
+          $FfmpegRoot = Get-ChildItem $FfmpegExtract -Directory -Recurse | Where-Object {
+            Test-Path (Join-Path $_.FullName "bin\ffplay.exe")
+          } | Select-Object -First 1
+          if ($null -eq $FfmpegRoot) {
+            throw "FFmpeg archive did not contain a directory with bin\ffplay.exe"
+          }
+          New-Item -ItemType Directory -Force -Path (Join-Path $ToolsDir "ffmpeg") | Out-Null
+          Copy-Item (Join-Path $FfmpegRoot.FullName "bin\*") (Join-Path $ToolsDir "ffmpeg") -Recurse -Force
+          Get-ChildItem -LiteralPath $FfmpegRoot.FullName -File | Copy-Item -Destination (Join-Path $ToolsDir "ffmpeg") -Force
+          foreach ($DirectoryName in @("doc", "licenses", "license", "presets")) {
+            $DirectoryPath = Join-Path $FfmpegRoot.FullName $DirectoryName
+            if (Test-Path -LiteralPath $DirectoryPath) {
+              Copy-Item -LiteralPath $DirectoryPath -Destination (Join-Path $ToolsDir "ffmpeg") -Recurse -Force
+            }
+          }
+
+          if (!(Test-Path (Join-Path $ToolsDir "adb\adb.exe"))) {
+            throw "Downloaded platform-tools did not include adb.exe"
+          }
+          if (!(Test-Path (Join-Path $ToolsDir "ffmpeg\ffplay.exe"))) {
+            throw "Downloaded FFmpeg build did not include ffplay.exe"
+          }
+
+      - name: Build portable zip
+        shell: pwsh
+        run: .\scripts\build_windows.ps1
+
+      - name: Stage portable artifact contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ArtifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          Remove-Item -LiteralPath $ArtifactDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+          Expand-Archive -LiteralPath "dist\ADB_RTSP_Player_Windows.zip" -DestinationPath $ArtifactDir -Force
+          if (!(Test-Path -LiteralPath (Join-Path $ArtifactDir "ADB_RTSP_Player\ADB_RTSP_Player.exe"))) {
+            throw "Artifact staging failed: ADB_RTSP_Player.exe is missing"
+          }
+
+      - name: Upload Windows artifact contents
+        uses: actions/upload-artifact@v4
+        with:
+          name: ADB_RTSP_Player_Windows
+          path: artifact
+          if-no-files-found: error
