@@ -48,12 +48,25 @@ class FakeRoot:
         self.row_configs = {}
         self.column_configs = {}
         self.cursor = ""
+        self.protocols = {}
 
     def rowconfigure(self, row, **kwargs):
         self.row_configs[row] = kwargs
 
     def columnconfigure(self, column, **kwargs):
         self.column_configs[column] = kwargs
+
+    def title(self, _title):
+        pass
+
+    def geometry(self, _geometry):
+        pass
+
+    def minsize(self, _width, _height):
+        pass
+
+    def protocol(self, name, callback):
+        self.protocols[name] = callback
 
     def config(self, **kwargs):
         if "cursor" in kwargs:
@@ -203,6 +216,33 @@ class GuiUsbSharingTests(unittest.TestCase):
             with patch("rtsp_tool.gui.check_dependencies", return_value=self.make_missing_dependencies()):
                 with patch("rtsp_tool.gui.get_app_dir", return_value=temp_dir):
                     return RTSPToolApp(root)
+
+    def make_minimal_init_app(self, *, windows):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch("rtsp_tool.gui.check_dependencies", return_value=self.make_missing_dependencies())
+                )
+                stack.enter_context(patch("rtsp_tool.gui.get_app_dir", return_value=temp_dir))
+                stack.enter_context(patch("rtsp_tool.gui.tk.StringVar", FakeVar))
+                stack.enter_context(patch("rtsp_tool.gui.tk.BooleanVar", FakeVar))
+                stack.enter_context(patch.object(RTSPToolApp, "_build_ui"))
+                stack.enter_context(patch.object(RTSPToolApp, "_render_dependency_status"))
+                stack.enter_context(patch.object(RTSPToolApp, "refresh_yolo_packages"))
+                stack.enter_context(patch.object(RTSPToolApp, "_update_button_states"))
+                stack.enter_context(patch.object(RTSPToolApp, "_is_windows", return_value=windows))
+                stack.enter_context(patch.object(RTSPToolApp, "log"))
+                return RTSPToolApp(FakeRoot())
+
+    def test_windows_startup_prompts_user_to_detect_adapters(self):
+        app = self.make_minimal_init_app(windows=True)
+
+        self.assertEqual(app.usb_sharing_status.get(), "点击“检测网络适配器”开始配置 USB 网络共享。")
+
+    def test_non_windows_startup_explains_auto_usb_sharing_is_windows_only(self):
+        app = self.make_minimal_init_app(windows=False)
+
+        self.assertEqual(app.usb_sharing_status.get(), "USB 网络共享自动配置仅适用于 Windows。")
 
     def assert_bottom_rows_visible(self, root, app, *, min_log_text_height):
         root.update_idletasks()

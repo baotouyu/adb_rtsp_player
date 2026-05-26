@@ -54,6 +54,20 @@ ADB_RTSP_Player/
 - 如果 Windows 防火墙或安全软件弹窗，请允许本程序或 `ffplay.exe` 访问局域网。
 - 未签名的 PyInstaller 程序可能触发 Windows SmartScreen 或杀毒软件提示；如果 zip 来自你信任的发布来源，可以选择允许或仍要运行。
 
+## Windows USB 网络共享（ICS）
+
+如果板子通过 USB/RNDIS 暴露 `usb0`，Windows 端需要启用 Internet Connection Sharing (ICS)，让板端通过 DHCP 获取 IP。
+
+在 app 里可以使用“USB 网络共享”区域：
+
+1. 点击“检测网络适配器”。
+2. 确认“上网网卡”是 Wi-Fi/以太网。
+3. 确认“板子 USB 网卡”是 Remote NDIS/USB Ethernet/RNDIS Gadget。
+4. 点击“自动配置 USB 共享”。Windows 可能弹出管理员权限确认。
+5. 配置完成后，点击“检测 usb0 IP”，或在板端执行 `ifconfig usb0` 查看 DHCP 地址。
+
+如果自动配置失败，app 会打开 Windows 网络连接页面。手动设置方法：右键上网网卡 -> 属性 -> 共享 -> 勾选允许共享 -> 家庭网络连接选择板子 RNDIS/USB 网卡。
+
 ## 开发运行
 
 ```bash

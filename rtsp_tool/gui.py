@@ -101,6 +101,10 @@ class RTSPToolApp:
 
         self._build_ui()
         self._render_dependency_status()
+        if self._is_windows():
+            self.usb_sharing_status.set("点击“检测网络适配器”开始配置 USB 网络共享。")
+        else:
+            self.usb_sharing_status.set(USB_SHARING_WINDOWS_ONLY_MESSAGE)
         self.refresh_yolo_packages()
         self._update_button_states()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
