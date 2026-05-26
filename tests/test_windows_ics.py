@@ -308,10 +308,11 @@ class WindowsIcsTests(unittest.TestCase):
             run_adapter_discovery(runner=lambda command, **kwargs: Completed())
 
     def test_build_ics_script_contains_names_hnetshare_sharing_calls_and_result_path(self):
+        result_path = Path("C:/Temp/ics'result.json")
         script = build_ics_script(
             "Pub'lic Wi-Fi",
             "Priv'ate RNDIS",
-            Path("C:/Temp/ics'result.json"),
+            result_path,
         )
 
         self.assertIn("Pub''lic Wi-Fi", script)
@@ -319,7 +320,7 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertIn("HNetCfg.HNetShare", script)
         self.assertIn("EnableSharing(0)", script)
         self.assertIn("EnableSharing(1)", script)
-        self.assertIn("C:/Temp/ics''result.json", script)
+        self.assertIn(str(result_path).replace("'", "''"), script)
 
     def test_build_elevated_ics_command_contains_runas_wait_and_script_filename(self):
         command = build_elevated_ics_command(Path("C:/Temp/configure-ics.ps1"))
