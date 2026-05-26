@@ -93,6 +93,7 @@ class ADBClient:
         self.adb_path = adb_path
         self.timeout = timeout
         self._service_processes: dict[str, subprocess.Popen[str]] = {}
+        self._service_commands: dict[str, list[str]] = {}
 
     def run(self, args: Sequence[str], timeout: float | None = None) -> CommandResult:
         command = [self.adb_path, *args]
@@ -183,13 +184,14 @@ class ADBClient:
         command = self.start_service_command(serial, ai_enabled=ai_enabled)
         existing = self._service_processes.get(serial)
         if existing and existing.poll() is None:
-            return CommandResult(command, 0, "started", "")
+            return CommandResult(self._service_commands.get(serial, command), 0, "already running", "")
         try:
             self._service_processes[serial] = subprocess.Popen(
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            self._service_commands[serial] = command
             return CommandResult(command, 0, "started", "")
         except OSError as exc:
             return CommandResult(command, 127, "", str(exc))
@@ -218,6 +220,7 @@ class ADBClient:
 
     def stop_local_service_process(self, serial: str) -> None:
         process = self._service_processes.pop(serial, None)
+        self._service_commands.pop(serial, None)
         if not process or process.poll() is not None:
             return
         process.terminate()

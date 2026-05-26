@@ -265,6 +265,27 @@ wlan0     Link encap:Ethernet
         )
         self.assertTrue(result.ok)
 
+    def test_start_service_reuses_original_command_when_local_process_is_running(self):
+        client = ADBClient(adb_path="adb")
+        rtsp_only_command = [
+            "adb",
+            "-s",
+            "abc123",
+            "shell",
+            "cd /tmp && /usr/bin/sample_smart_camera --rtsp-only >/tmp/sample_smart_camera.log 2>&1",
+        ]
+
+        with patch("rtsp_tool.adb_client.subprocess.Popen") as popen:
+            popen.return_value.poll.return_value = None
+            first = client.start_service("abc123")
+            second = client.start_service("abc123", ai_enabled=True)
+
+        self.assertEqual(popen.call_count, 1)
+        self.assertEqual(first.command, rtsp_only_command)
+        self.assertEqual(second.command, rtsp_only_command)
+        self.assertEqual(second.stdout, "already running")
+        self.assertIn("--rtsp-only", second.command[-1])
+
     def test_wait_for_service_polls_until_pid_appears(self):
         client = ADBClient(adb_path="adb")
 

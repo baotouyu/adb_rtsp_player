@@ -252,6 +252,9 @@ class RTSPToolApp:
         self.update_yolo_button.configure(
             state="normal" if has_adb and has_usable_device and has_yolo_package and not busy else "disabled"
         )
+        checkbox_state = "disabled" if busy else "normal"
+        self.start_after_update_check.configure(state=checkbox_state)
+        self.ai_stream_check.configure(state=checkbox_state)
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         if getattr(self, "_operation_in_progress", False):
@@ -448,6 +451,7 @@ class RTSPToolApp:
         if self.adb.is_service_running(serial):
             self._ui(self.service_status.set, state_text("running"))
             self._ui(self.log, f"{SERVICE_NAME} 已经在运行。")
+            self._ui(self.log, "服务已运行，不会因为当前勾选框切换模式；如需切换，请先停止再启动。")
         elif start_if_needed:
             self._ui(self.service_status.set, state_text("starting"))
             mode_text = "AI 检测 + 推流" if ai_enabled else "仅推流"

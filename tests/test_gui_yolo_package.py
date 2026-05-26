@@ -255,6 +255,8 @@ class GuiYoloPackageTests(unittest.TestCase):
             "copy_button",
             "update_yolo_button",
             "refresh_yolo_button",
+            "start_after_update_check",
+            "ai_stream_check",
         ):
             buttons[name] = FakeButton()
             setattr(app, name, buttons[name])
@@ -285,9 +287,13 @@ class GuiYoloPackageTests(unittest.TestCase):
         self.assertEqual(app.stop_service_button.state, "disabled")
         self.assertEqual(app.start_playback_button.state, "disabled")
         self.assertEqual(app.refresh_yolo_button.state, "normal")
+        self.assertEqual(app.start_after_update_check.state, "disabled")
+        self.assertEqual(app.ai_stream_check.state, "disabled")
 
         app._clear_busy()
         self.assertEqual(app.update_yolo_button.state, "normal")
+        self.assertEqual(app.start_after_update_check.state, "normal")
+        self.assertEqual(app.ai_stream_check.state, "normal")
 
     def test_run_background_ignores_new_work_while_operation_is_in_progress(self):
         app = self.make_button_state_app()
@@ -443,6 +449,9 @@ class GuiYoloPackageTests(unittest.TestCase):
         app._inspect_device("abc", start_if_needed=True, ai_enabled=True)
 
         self.assertEqual(app.adb.starts, [])
+        log_text = "\n".join(app.logged)
+        self.assertIn("不会因为当前勾选框切换模式", log_text)
+        self.assertIn("请先停止再启动", log_text)
 
 
 if __name__ == "__main__":
