@@ -24,6 +24,13 @@ TEXT = {
     "update_yolo_package": "更新到板端",
     "start_after_update": "更新后启动推流",
     "enable_ai_detection": "启用 AI 检测",
+    "usb_sharing": "USB 网络共享",
+    "detect_network_adapters": "检测网络适配器",
+    "configure_usb_sharing": "自动配置 USB 共享",
+    "open_manual_network_settings": "打开手动设置",
+    "detect_usb0_ip": "检测 usb0 IP",
+    "internet_adapter": "上网网卡",
+    "usb_adapter": "板子 USB 网卡",
 }
 
 STATE_TEXT = {

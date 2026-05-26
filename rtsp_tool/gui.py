@@ -11,6 +11,8 @@ from .adb_client import ADBClient, ADBDevice, SERVICE_LOG, SERVICE_NAME
 from .dependencies import DependencyStatus, check_dependencies, get_app_dir
 from .i18n import TEXT, device_state_text, state_text
 from .player import PlayerController, build_rtsp_url
+from . import windows_ics
+from .windows_ics import NetworkAdapter
 from .yolo_package import YoloPackage, scan_yolo_packages, yolo_apps_dir
 
 
@@ -71,6 +73,11 @@ class RTSPToolApp:
         self.selected_yolo_package = tk.StringVar(value="")
         self.start_after_update = tk.BooleanVar(value=False)
         self.ai_stream_enabled = tk.BooleanVar(value=False)
+        self.internet_adapters: dict[str, NetworkAdapter] = {}
+        self.usb_adapters: dict[str, NetworkAdapter] = {}
+        self.selected_internet_adapter = tk.StringVar(value="")
+        self.selected_usb_adapter = tk.StringVar(value="")
+        self.usb_sharing_status = tk.StringVar(value=state_text("unknown"))
         self.yolo_apps_path = yolo_apps_dir(get_app_dir())
         self._operation_in_progress = False
 
@@ -255,6 +262,43 @@ class RTSPToolApp:
         checkbox_state = "disabled" if busy else "normal"
         self.start_after_update_check.configure(state=checkbox_state)
         self.ai_stream_check.configure(state=checkbox_state)
+
+        is_windows = self._is_windows()
+        has_selected_adapters = bool(self._selected_internet_adapter() and self._selected_usb_adapter())
+        windows_ready = is_windows and not busy
+        self._configure_optional_button(
+            "detect_adapters_button", "normal" if windows_ready else "disabled"
+        )
+        self._configure_optional_button(
+            "configure_usb_sharing_button",
+            "normal" if windows_ready and has_selected_adapters else "disabled",
+        )
+        self._configure_optional_button(
+            "manual_network_settings_button", "normal" if windows_ready else "disabled"
+        )
+        self._configure_optional_button(
+            "detect_usb0_button", "normal" if has_adb and has_usable_device and not busy else "disabled"
+        )
+
+    def _configure_optional_button(self, attribute_name: str, state: str) -> None:
+        button = getattr(self, attribute_name, None)
+        if button is not None:
+            button.configure(state=state)
+
+    def _is_windows(self) -> bool:
+        return windows_ics.is_windows()
+
+    def _selected_internet_adapter(self) -> NetworkAdapter | None:
+        selected_var = getattr(self, "selected_internet_adapter", None)
+        if selected_var is None:
+            return None
+        return getattr(self, "internet_adapters", {}).get(selected_var.get())
+
+    def _selected_usb_adapter(self) -> NetworkAdapter | None:
+        selected_var = getattr(self, "selected_usb_adapter", None)
+        if selected_var is None:
+            return None
+        return getattr(self, "usb_adapters", {}).get(selected_var.get())
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         if getattr(self, "_operation_in_progress", False):

@@ -27,6 +27,15 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(TEXT["start_after_update"], "更新后启动推流")
         self.assertEqual(TEXT["enable_ai_detection"], "启用 AI 检测")
 
+    def test_usb_sharing_labels_are_chinese(self):
+        self.assertEqual(TEXT["usb_sharing"], "USB 网络共享")
+        self.assertEqual(TEXT["detect_network_adapters"], "检测网络适配器")
+        self.assertEqual(TEXT["configure_usb_sharing"], "自动配置 USB 共享")
+        self.assertEqual(TEXT["open_manual_network_settings"], "打开手动设置")
+        self.assertEqual(TEXT["detect_usb0_ip"], "检测 usb0 IP")
+        self.assertEqual(TEXT["internet_adapter"], "上网网卡")
+        self.assertEqual(TEXT["usb_adapter"], "板子 USB 网卡")
+
     def test_runtime_state_text_is_chinese(self):
         self.assertEqual(STATE_TEXT["unknown"], "未知")
         self.assertEqual(STATE_TEXT["running"], "运行中")
