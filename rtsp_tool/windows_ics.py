@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import platform
+import subprocess
 from typing import Iterable
 
 
@@ -45,8 +48,148 @@ class NetworkAdapter:
         return self.name
 
 
+@dataclass(frozen=True)
+class IcsConfigResult:
+    ok: bool
+    message: str
+
+
 def is_windows() -> bool:
     return platform.system().lower() == "windows"
+
+
+def _ps_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def build_adapter_discovery_command() -> list[str]:
+    script = r"""
+$adapters = Get-NetAdapter | ForEach-Object {
+    $ipConfig = Get-NetIPConfiguration -InterfaceIndex $_.ifIndex
+    [PSCustomObject]@{
+        Name = $_.Name
+        InterfaceDescription = $_.InterfaceDescription
+        Status = $_.Status
+        IPv4DefaultGateway = $ipConfig.IPv4DefaultGateway
+    }
+}
+$adapters | ConvertTo-Json -Depth 5
+""".strip()
+    return ["powershell", "-NoProfile", "-Command", script]
+
+
+def parse_adapter_json(output: str) -> list[NetworkAdapter]:
+    if not output.strip():
+        return []
+
+    data = json.loads(output)
+    if isinstance(data, dict):
+        items = [data]
+    else:
+        items = data
+
+    adapters: list[NetworkAdapter] = []
+    for item in items:
+        gateway = item.get("IPv4DefaultGateway")
+        adapters.append(
+            NetworkAdapter(
+                name=str(item.get("Name") or ""),
+                description=str(item.get("InterfaceDescription") or ""),
+                status=str(item.get("Status") or ""),
+                has_gateway=bool(gateway),
+            )
+        )
+    return adapters
+
+
+def run_adapter_discovery(runner=subprocess.run) -> list[NetworkAdapter]:
+    completed = runner(
+        build_adapter_discovery_command(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        message = (completed.stderr or "").strip() or "网卡发现失败"
+        raise RuntimeError(message)
+    return parse_adapter_json(completed.stdout)
+
+
+def build_ics_script(public_adapter_name, private_adapter_name, result_path) -> str:
+    public_name = _ps_single_quote(str(public_adapter_name))
+    private_name = _ps_single_quote(str(private_adapter_name))
+    result = _ps_single_quote(str(result_path))
+    return f"""
+$ErrorActionPreference = 'Stop'
+$publicName = {public_name}
+$privateName = {private_name}
+$resultPath = {result}
+
+function Write-IcsResult($ok, $message) {{
+    @{{ ok = [bool]$ok; message = [string]$message }} |
+        ConvertTo-Json -Compress |
+        Set-Content -LiteralPath $resultPath -Encoding UTF8
+}}
+
+try {{
+    $share = New-Object -ComObject HNetCfg.HNetShare
+    $connections = @($share.EnumEveryConnection)
+
+    function Find-ConnectionByName($name) {{
+        foreach ($connection in $connections) {{
+            $props = $share.NetConnectionProps($connection)
+            if ($props.Name -eq $name) {{
+                return $connection
+            }}
+        }}
+        return $null
+    }}
+
+    $publicConnection = Find-ConnectionByName $publicName
+    $privateConnection = Find-ConnectionByName $privateName
+
+    if ($null -eq $publicConnection) {{
+        throw "未找到公网网卡: $publicName"
+    }}
+    if ($null -eq $privateConnection) {{
+        throw "未找到专用网卡: $privateName"
+    }}
+
+    foreach ($connection in $connections) {{
+        $config = $share.INetSharingConfigurationForINetConnection($connection)
+        if ($config.SharingEnabled) {{
+            $config.DisableSharing()
+        }}
+    }}
+
+    $publicConfig = $share.INetSharingConfigurationForINetConnection($publicConnection)
+    $privateConfig = $share.INetSharingConfigurationForINetConnection($privateConnection)
+    $publicConfig.EnableSharing(0)
+    $privateConfig.EnableSharing(1)
+
+    Write-IcsResult $true 'ICS 配置成功'
+}} catch {{
+    Write-IcsResult $false $_.Exception.Message
+}}
+""".strip()
+
+
+def build_elevated_ics_command(script_path: Path) -> list[str]:
+    quoted_script = _ps_single_quote(str(script_path))
+    script = (
+        "$arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "
+        f"{quoted_script}); Start-Process powershell -Verb RunAs -Wait -ArgumentList $arguments"
+    )
+    return ["powershell", "-NoProfile", "-Command", script]
+
+
+def load_ics_result(path: Path) -> IcsConfigResult:
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    return IcsConfigResult(ok=bool(data.get("ok")), message=str(data.get("message") or ""))
+
+
+def open_manual_network_settings(runner=subprocess.run) -> None:
+    runner(["control.exe", "ncpa.cpl"], check=False)
 
 
 def _adapter_text(adapter: NetworkAdapter) -> str:

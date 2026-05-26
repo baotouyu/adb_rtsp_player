@@ -1,8 +1,17 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from rtsp_tool.windows_ics import (
+    build_adapter_discovery_command,
+    build_elevated_ics_command,
+    build_ics_script,
+    load_ics_result,
     NetworkAdapter,
+    open_manual_network_settings,
+    parse_adapter_json,
+    run_adapter_discovery,
     adapter_choice_map,
     choose_single_internet_adapter,
     choose_single_usb_adapter,
@@ -151,6 +160,140 @@ class WindowsIcsTests(unittest.TestCase):
             self.assertTrue(is_windows())
         with patch("rtsp_tool.windows_ics.platform.system", return_value="Darwin"):
             self.assertFalse(is_windows())
+
+    def test_parse_adapter_json_returns_adapters_from_array_and_gateway_flag(self):
+        output = """
+        [
+            {
+                "Name": "Wi-Fi",
+                "InterfaceDescription": "Intel Wireless",
+                "Status": "Up",
+                "IPv4DefaultGateway": {"NextHop": "192.168.1.1"}
+            },
+            {
+                "Name": "USB RNDIS",
+                "InterfaceDescription": "Remote NDIS",
+                "Status": "Disconnected",
+                "IPv4DefaultGateway": null
+            }
+        ]
+        """
+
+        adapters = parse_adapter_json(output)
+
+        self.assertEqual(
+            adapters,
+            [
+                NetworkAdapter(name="Wi-Fi", description="Intel Wireless", status="Up", has_gateway=True),
+                NetworkAdapter(name="USB RNDIS", description="Remote NDIS", status="Disconnected", has_gateway=False),
+            ],
+        )
+
+    def test_parse_adapter_json_handles_single_json_object(self):
+        output = """
+        {
+            "Name": "Ethernet",
+            "InterfaceDescription": "Realtek PCIe",
+            "Status": "Up",
+            "IPv4DefaultGateway": "192.168.1.1"
+        }
+        """
+
+        adapters = parse_adapter_json(output)
+
+        self.assertEqual(adapters, [NetworkAdapter(name="Ethernet", description="Realtek PCIe", status="Up", has_gateway=True)])
+
+    def test_build_adapter_discovery_command_contains_expected_powershell(self):
+        command = build_adapter_discovery_command()
+        command_text = " ".join(command)
+
+        self.assertIn("powershell", command_text.lower())
+        self.assertIn("Get-NetAdapter", command_text)
+        self.assertIn("Get-NetIPConfiguration", command_text)
+        self.assertIn("ConvertTo-Json", command_text)
+
+    def test_run_adapter_discovery_parses_output_and_passes_subprocess_options(self):
+        calls = []
+
+        class Completed:
+            returncode = 0
+            stdout = """
+            {
+                "Name": "Wi-Fi",
+                "InterfaceDescription": "Intel Wireless",
+                "Status": "Up",
+                "IPv4DefaultGateway": {"NextHop": "192.168.1.1"}
+            }
+            """
+            stderr = ""
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return Completed()
+
+        adapters = run_adapter_discovery(runner=runner)
+
+        self.assertEqual(adapters, [NetworkAdapter(name="Wi-Fi", description="Intel Wireless", status="Up", has_gateway=True)])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], {"text": True, "capture_output": True, "check": False})
+        self.assertIn("Get-NetAdapter", " ".join(calls[0][0]))
+
+    def test_run_adapter_discovery_raises_runtime_error_with_stderr_on_failure(self):
+        class Completed:
+            returncode = 1
+            stdout = ""
+            stderr = "access denied"
+
+        with self.assertRaisesRegex(RuntimeError, "access denied"):
+            run_adapter_discovery(runner=lambda command, **kwargs: Completed())
+
+    def test_build_ics_script_contains_names_hnetshare_sharing_calls_and_result_path(self):
+        script = build_ics_script(
+            "Pub'lic Wi-Fi",
+            "Priv'ate RNDIS",
+            Path("C:/Temp/ics'result.json"),
+        )
+
+        self.assertIn("Pub''lic Wi-Fi", script)
+        self.assertIn("Priv''ate RNDIS", script)
+        self.assertIn("HNetCfg.HNetShare", script)
+        self.assertIn("EnableSharing(0)", script)
+        self.assertIn("EnableSharing(1)", script)
+        self.assertIn("C:/Temp/ics''result.json", script)
+
+    def test_build_elevated_ics_command_contains_runas_wait_and_script_filename(self):
+        command = build_elevated_ics_command(Path("C:/Temp/configure-ics.ps1"))
+        command_text = " ".join(command)
+
+        self.assertIn("Start-Process", command_text)
+        self.assertIn("-Verb RunAs", command_text)
+        self.assertIn("-Wait", command_text)
+        self.assertIn("configure-ics.ps1", command_text)
+
+    def test_load_ics_result_reads_success_and_failure_json(self):
+        with TemporaryDirectory() as tmpdir:
+            success_path = Path(tmpdir) / "success.json"
+            failure_path = Path(tmpdir) / "failure.json"
+            success_path.write_text('{"ok": true, "message": "done"}', encoding="utf-8-sig")
+            failure_path.write_text('{"ok": false, "message": "failed"}', encoding="utf-8-sig")
+
+            success = load_ics_result(success_path)
+            failure = load_ics_result(failure_path)
+
+        self.assertTrue(success.ok)
+        self.assertEqual(success.message, "done")
+        self.assertFalse(failure.ok)
+        self.assertEqual(failure.message, "failed")
+
+    def test_open_manual_network_settings_launches_ncpa_control_panel(self):
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+
+        open_manual_network_settings(runner=runner)
+
+        self.assertEqual(calls, [(["control.exe", "ncpa.cpl"], {"check": False})])
 
 
 if __name__ == "__main__":
