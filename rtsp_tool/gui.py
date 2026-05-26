@@ -12,7 +12,15 @@ from .dependencies import DependencyStatus, check_dependencies, get_app_dir
 from .i18n import TEXT, device_state_text, state_text
 from .player import PlayerController, build_rtsp_url
 from . import windows_ics
-from .windows_ics import NetworkAdapter
+from .windows_ics import (
+    NetworkAdapter,
+    adapter_choice_map,
+    choose_single_internet_adapter,
+    choose_single_usb_adapter,
+    run_adapter_discovery,
+    select_internet_adapters,
+    select_usb_adapters,
+)
 from .yolo_package import YoloPackage, scan_yolo_packages, yolo_apps_dir
 
 
@@ -94,7 +102,7 @@ class RTSPToolApp:
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(5, weight=1)
+        self.root.rowconfigure(6, weight=1)
 
         dep_frame = ttk.LabelFrame(self.root, text=TEXT["dependencies"])
         dep_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
@@ -135,8 +143,55 @@ class RTSPToolApp:
         )
         self.refresh_button.grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
+        usb_frame = ttk.LabelFrame(self.root, text=TEXT["usb_sharing"])
+        usb_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=6)
+        usb_frame.columnconfigure(1, weight=1)
+        usb_frame.columnconfigure(3, weight=1)
+        ttk.Label(usb_frame, text=TEXT["internet_adapter"]).grid(
+            row=0, column=0, sticky="w", padx=(10, 6), pady=(8, 4)
+        )
+        self.internet_adapter_combo = ttk.Combobox(
+            usb_frame,
+            textvariable=self.selected_internet_adapter,
+            state="readonly",
+            values=(),
+        )
+        self.internet_adapter_combo.grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=(8, 4))
+        self.internet_adapter_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
+        ttk.Label(usb_frame, text=TEXT["usb_adapter"]).grid(
+            row=0, column=2, sticky="w", padx=(10, 6), pady=(8, 4)
+        )
+        self.usb_adapter_combo = ttk.Combobox(
+            usb_frame,
+            textvariable=self.selected_usb_adapter,
+            state="readonly",
+            values=(),
+        )
+        self.usb_adapter_combo.grid(row=0, column=3, sticky="ew", padx=(0, 10), pady=(8, 4))
+        self.usb_adapter_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_button_states())
+
+        self.detect_adapters_button = ttk.Button(
+            usb_frame, text=TEXT["detect_network_adapters"], command=self.detect_network_adapters
+        )
+        self.configure_usb_sharing_button = ttk.Button(
+            usb_frame, text=TEXT["configure_usb_sharing"], command=self.configure_usb_sharing
+        )
+        self.manual_network_settings_button = ttk.Button(
+            usb_frame, text=TEXT["open_manual_network_settings"], command=self.open_manual_network_settings
+        )
+        self.detect_usb0_button = ttk.Button(
+            usb_frame, text=TEXT["detect_usb0_ip"], command=self.detect_usb0_ip
+        )
+        self.detect_adapters_button.grid(row=1, column=0, sticky="ew", padx=(10, 6), pady=4)
+        self.configure_usb_sharing_button.grid(row=1, column=1, sticky="ew", padx=6, pady=4)
+        self.manual_network_settings_button.grid(row=1, column=2, sticky="ew", padx=6, pady=4)
+        self.detect_usb0_button.grid(row=1, column=3, sticky="ew", padx=(6, 10), pady=4)
+        ttk.Label(usb_frame, textvariable=self.usb_sharing_status, anchor="w").grid(
+            row=2, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 8)
+        )
+
         stream_frame = ttk.LabelFrame(self.root, text=TEXT["stream"])
-        stream_frame.grid(row=2, column=0, sticky="ew", padx=12, pady=6)
+        stream_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
         stream_frame.columnconfigure(1, weight=1)
         self._add_field(stream_frame, 0, TEXT["selected_device"], self.selected_serial)
         self._add_field(stream_frame, 1, TEXT["device_ip"], self.device_ip)
@@ -150,7 +205,7 @@ class RTSPToolApp:
         self.ai_stream_check.grid(row=4, column=1, sticky="w", padx=10, pady=4)
 
         yolo_frame = ttk.LabelFrame(self.root, text=TEXT["yolo_package"])
-        yolo_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=6)
+        yolo_frame.grid(row=4, column=0, sticky="ew", padx=12, pady=6)
         yolo_frame.columnconfigure(0, weight=1)
         self.yolo_package_combo = ttk.Combobox(
             yolo_frame,
@@ -174,7 +229,7 @@ class RTSPToolApp:
         self.start_after_update_check.grid(row=0, column=3, sticky="w", padx=(6, 8), pady=8)
 
         controls = ttk.LabelFrame(self.root, text=TEXT["controls"])
-        controls.grid(row=4, column=0, sticky="ew", padx=12, pady=6)
+        controls.grid(row=5, column=0, sticky="ew", padx=12, pady=6)
         for col in range(5):
             controls.columnconfigure(col, weight=1)
         self.start_service_button = ttk.Button(
@@ -197,7 +252,7 @@ class RTSPToolApp:
         self.copy_button.grid(row=0, column=4, sticky="ew", padx=6, pady=8)
 
         log_frame = ttk.LabelFrame(self.root, text=TEXT["log"])
-        log_frame.grid(row=5, column=0, sticky="nsew", padx=12, pady=(6, 12))
+        log_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=(6, 12))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, height=12, wrap="word", state="disabled")
@@ -207,7 +262,7 @@ class RTSPToolApp:
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         status_bar = ttk.Label(self.root, textvariable=self.status_text, anchor="w")
-        status_bar.grid(row=6, column=0, sticky="ew", padx=12, pady=(0, 8))
+        status_bar.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     def _add_field(self, parent: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=10, pady=4)
@@ -299,6 +354,65 @@ class RTSPToolApp:
         if selected_var is None:
             return None
         return getattr(self, "usb_adapters", {}).get(selected_var.get())
+
+    def detect_network_adapters(self) -> None:
+        if not self._is_windows():
+            self.log("USB 网络共享自动配置仅适用于 Windows。")
+            return
+
+        def work() -> None:
+            self._ui(self.log, "正在检测 Windows 网络适配器...")
+            adapters = run_adapter_discovery()
+            self._ui(self._replace_network_adapters, adapters)
+
+        self._run_background("正在检测 Windows 网络适配器...", work)
+
+    def _replace_network_adapters(self, adapters: list[NetworkAdapter]) -> None:
+        internet_candidates = select_internet_adapters(adapters)
+        usb_candidates = select_usb_adapters(adapters)
+
+        self.internet_adapters = adapter_choice_map(internet_candidates)
+        self.usb_adapters = adapter_choice_map(usb_candidates)
+        internet_values = tuple(self.internet_adapters)
+        usb_values = tuple(self.usb_adapters)
+        self.internet_adapter_combo.configure(values=internet_values)
+        self.usb_adapter_combo.configure(values=usb_values)
+
+        internet_choice = choose_single_internet_adapter(internet_candidates)
+        usb_choice = choose_single_usb_adapter(usb_candidates)
+        self.selected_internet_adapter.set(self._adapter_label_for_choice(self.internet_adapters, internet_choice))
+        self.selected_usb_adapter.set(self._adapter_label_for_choice(self.usb_adapters, usb_choice))
+
+        if internet_values:
+            self.log("检测到上网网卡：" + "、".join(internet_values))
+        else:
+            self.log("未检测到可用于上网的 Windows 网卡。")
+        if usb_values:
+            self.log("检测到板子 USB 网卡：" + "、".join(usb_values))
+        else:
+            self.log("未检测到板子 USB 网卡。请确认 USB 网络/RNDIS 已连接。")
+
+        self.usb_sharing_status.set("请选择网卡后配置 USB 网络共享。")
+        self._update_button_states()
+
+    def _adapter_label_for_choice(
+        self, choices: dict[str, NetworkAdapter], choice: NetworkAdapter | None
+    ) -> str:
+        if choice is None:
+            return ""
+        for label, adapter in choices.items():
+            if adapter is choice or adapter == choice:
+                return label
+        return ""
+
+    def configure_usb_sharing(self) -> None:
+        self.log("自动配置 USB 网络共享将在后续任务实现。")
+
+    def open_manual_network_settings(self) -> None:
+        self.log("打开手动网络设置将在后续任务实现。")
+
+    def detect_usb0_ip(self) -> None:
+        self.log("检测 usb0 IP 将在后续任务实现。")
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         if getattr(self, "_operation_in_progress", False):

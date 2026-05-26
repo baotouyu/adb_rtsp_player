@@ -1,8 +1,10 @@
 from types import SimpleNamespace
+from contextlib import ExitStack
 import unittest
 from unittest.mock import patch
 
 from rtsp_tool.gui import RTSPToolApp
+from rtsp_tool.i18n import TEXT
 from rtsp_tool.windows_ics import NetworkAdapter
 
 
@@ -26,6 +28,73 @@ class FakeButton:
             self.state = kwargs["state"]
 
 
+class FakeCombobox:
+    def __init__(self):
+        self.values = ()
+        self.state = None
+
+    def configure(self, **kwargs):
+        if "values" in kwargs:
+            self.values = tuple(kwargs["values"])
+        if "state" in kwargs:
+            self.state = kwargs["state"]
+
+
+class FakeRoot:
+    def __init__(self):
+        self.row_configs = {}
+        self.column_configs = {}
+
+    def rowconfigure(self, row, **kwargs):
+        self.row_configs[row] = kwargs
+
+    def columnconfigure(self, column, **kwargs):
+        self.column_configs[column] = kwargs
+
+
+class FakeWidget:
+    created = []
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.grid_kwargs = None
+        self.bindings = {}
+        self.configured = {}
+        FakeWidget.created.append(self)
+
+    def grid(self, **kwargs):
+        self.grid_kwargs = kwargs
+
+    def columnconfigure(self, *args, **kwargs):
+        self.configured[("columnconfigure", args)] = kwargs
+
+    def rowconfigure(self, *args, **kwargs):
+        self.configured[("rowconfigure", args)] = kwargs
+
+    def heading(self, *args, **kwargs):
+        self.configured[("heading", args)] = kwargs
+
+    def column(self, *args, **kwargs):
+        self.configured[("column", args)] = kwargs
+
+    def bind(self, event, callback):
+        self.bindings[event] = callback
+
+    def configure(self, **kwargs):
+        self.configured.update(kwargs)
+
+    def yview(self, *args):
+        return None
+
+    def set(self, *args):
+        return None
+
+
+def fake_widget_type(kind):
+    return type(kind, (FakeWidget,), {"kind": kind})
+
+
 class GuiUsbSharingTests(unittest.TestCase):
     def make_app(self, *, windows=True, selected_adapters=True, usable_device=True, busy=False):
         app = object.__new__(RTSPToolApp)
@@ -45,6 +114,12 @@ class GuiUsbSharingTests(unittest.TestCase):
         app.usb_adapters = {"usb": usb}
         app.selected_internet_adapter = FakeVar("wifi" if selected_adapters else "")
         app.selected_usb_adapter = FakeVar("usb" if selected_adapters else "")
+        app.usb_sharing_status = FakeVar("")
+        app.internet_adapter_combo = FakeCombobox()
+        app.usb_adapter_combo = FakeCombobox()
+        app.logged = []
+        app.log = app.logged.append
+        app._ui = lambda func, *args: func(*args)
 
         for name in (
             "refresh_button",
@@ -64,6 +139,73 @@ class GuiUsbSharingTests(unittest.TestCase):
         ):
             setattr(app, name, FakeButton())
         return app
+
+    def test_build_ui_adds_usb_sharing_section_and_expected_rows(self):
+        app = object.__new__(RTSPToolApp)
+        app.root = FakeRoot()
+        app.dep_vars = {}
+        app.selected_serial = FakeVar("")
+        app.device_ip = FakeVar("")
+        app.rtsp_url = FakeVar("")
+        app.service_status = FakeVar("")
+        app.status_text = FakeVar("")
+        app.selected_yolo_package = FakeVar("")
+        app.start_after_update = FakeVar(False)
+        app.ai_stream_enabled = FakeVar(False)
+        app.selected_internet_adapter = FakeVar("")
+        app.selected_usb_adapter = FakeVar("")
+        app.usb_sharing_status = FakeVar("")
+        FakeWidget.created = []
+
+        widget_patches = {
+            "rtsp_tool.gui.ttk.LabelFrame": fake_widget_type("LabelFrame"),
+            "rtsp_tool.gui.ttk.Label": fake_widget_type("Label"),
+            "rtsp_tool.gui.ttk.Treeview": fake_widget_type("Treeview"),
+            "rtsp_tool.gui.ttk.Scrollbar": fake_widget_type("Scrollbar"),
+            "rtsp_tool.gui.ttk.Frame": fake_widget_type("Frame"),
+            "rtsp_tool.gui.ttk.Button": fake_widget_type("Button"),
+            "rtsp_tool.gui.ttk.Combobox": fake_widget_type("Combobox"),
+            "rtsp_tool.gui.ttk.Checkbutton": fake_widget_type("Checkbutton"),
+            "rtsp_tool.gui.tk.Text": fake_widget_type("Text"),
+            "rtsp_tool.gui.tk.StringVar": FakeVar,
+        }
+        with ExitStack() as stack:
+            for target, replacement in widget_patches.items():
+                stack.enter_context(patch(target, replacement))
+            app._build_ui()
+
+        frames = [widget for widget in FakeWidget.created if widget.kind == "LabelFrame"]
+        rows_by_text = {widget.kwargs["text"]: widget.grid_kwargs["row"] for widget in frames}
+        self.assertEqual(rows_by_text[TEXT["dependencies"]], 0)
+        self.assertEqual(rows_by_text[TEXT["devices"]], 1)
+        self.assertEqual(rows_by_text[TEXT["usb_sharing"]], 2)
+        self.assertEqual(rows_by_text[TEXT["stream"]], 3)
+        self.assertEqual(rows_by_text[TEXT["yolo_package"]], 4)
+        self.assertEqual(rows_by_text[TEXT["controls"]], 5)
+        self.assertEqual(rows_by_text[TEXT["log"]], 6)
+        self.assertEqual(app.root.row_configs[6]["weight"], 1)
+
+        self.assertIs(app.internet_adapter_combo.kwargs["textvariable"], app.selected_internet_adapter)
+        self.assertEqual(app.internet_adapter_combo.kwargs["state"], "readonly")
+        self.assertIn("<<ComboboxSelected>>", app.internet_adapter_combo.bindings)
+        self.assertIs(app.usb_adapter_combo.kwargs["textvariable"], app.selected_usb_adapter)
+        self.assertEqual(app.usb_adapter_combo.kwargs["state"], "readonly")
+        self.assertIn("<<ComboboxSelected>>", app.usb_adapter_combo.bindings)
+
+        self.assertEqual(app.detect_adapters_button.kwargs["text"], TEXT["detect_network_adapters"])
+        self.assertEqual(app.detect_adapters_button.kwargs["command"], app.detect_network_adapters)
+        self.assertEqual(app.configure_usb_sharing_button.kwargs["text"], TEXT["configure_usb_sharing"])
+        self.assertEqual(app.configure_usb_sharing_button.kwargs["command"], app.configure_usb_sharing)
+        self.assertEqual(app.manual_network_settings_button.kwargs["text"], TEXT["open_manual_network_settings"])
+        self.assertEqual(app.manual_network_settings_button.kwargs["command"], app.open_manual_network_settings)
+        self.assertEqual(app.detect_usb0_button.kwargs["text"], TEXT["detect_usb0_ip"])
+        self.assertEqual(app.detect_usb0_button.kwargs["command"], app.detect_usb0_ip)
+        self.assertTrue(
+            any(
+                widget.kind == "Label" and widget.kwargs.get("textvariable") is app.usb_sharing_status
+                for widget in FakeWidget.created
+            )
+        )
 
     def test_windows_with_selected_adapters_and_usable_device_enables_usb_sharing_buttons(self):
         app = self.make_app(windows=True, selected_adapters=True, usable_device=True)
@@ -133,6 +275,82 @@ class GuiUsbSharingTests(unittest.TestCase):
             self.assertTrue(app._is_windows())
         with patch("rtsp_tool.windows_ics.is_windows", return_value=False):
             self.assertFalse(app._is_windows())
+
+    def test_replace_network_adapters_selects_single_candidates(self):
+        app = self.make_app(windows=True, selected_adapters=False)
+        internet = NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status="Up", has_gateway=True)
+        usb = NetworkAdapter(name="Ethernet 2", description="Remote NDIS Compatible Device", status="Up")
+
+        app._replace_network_adapters([internet, usb])
+
+        self.assertEqual(app.internet_adapter_combo.values, ("Wi-Fi - Intel Wi-Fi",))
+        self.assertEqual(app.usb_adapter_combo.values, ("Ethernet 2 - Remote NDIS Compatible Device",))
+        self.assertEqual(app.selected_internet_adapter.get(), "Wi-Fi - Intel Wi-Fi")
+        self.assertEqual(app.selected_usb_adapter.get(), "Ethernet 2 - Remote NDIS Compatible Device")
+        self.assertIs(app._selected_internet_adapter(), internet)
+        self.assertIs(app._selected_usb_adapter(), usb)
+        self.assertIn("检测到上网网卡", "\n".join(app.logged))
+        self.assertIn("检测到板子 USB 网卡", "\n".join(app.logged))
+        self.assertEqual(app.usb_sharing_status.get(), "请选择网卡后配置 USB 网络共享。")
+        self.assertEqual(app.configure_usb_sharing_button.state, "normal")
+
+    def test_replace_network_adapters_does_not_select_when_multiple_candidates(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        adapters = [
+            NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status="Up", has_gateway=True),
+            NetworkAdapter(name="Ethernet", description="Realtek PCIe", status="Up", has_gateway=True),
+            NetworkAdapter(name="Ethernet 2", description="Remote NDIS Compatible Device", status="Up"),
+            NetworkAdapter(name="USB Ethernet Gadget", description="Board link", status="Up"),
+        ]
+
+        app._replace_network_adapters(adapters)
+
+        self.assertEqual(
+            app.internet_adapter_combo.values,
+            ("Wi-Fi - Intel Wi-Fi", "Ethernet - Realtek PCIe"),
+        )
+        self.assertEqual(
+            app.usb_adapter_combo.values,
+            ("Ethernet 2 - Remote NDIS Compatible Device", "USB Ethernet Gadget - Board link"),
+        )
+        self.assertEqual(app.selected_internet_adapter.get(), "")
+        self.assertEqual(app.selected_usb_adapter.get(), "")
+        self.assertEqual(app.configure_usb_sharing_button.state, "disabled")
+
+    def test_detect_network_adapters_skips_on_non_windows(self):
+        app = self.make_app(windows=False)
+
+        def fail_run_background(message, work):
+            self.fail("_run_background should not be called on non-Windows hosts")
+
+        app._run_background = fail_run_background
+        with patch("rtsp_tool.gui.run_adapter_discovery") as discovery:
+            app.detect_network_adapters()
+
+        discovery.assert_not_called()
+        self.assertIn("USB 网络共享自动配置仅适用于 Windows。", app.logged)
+
+    def test_detect_network_adapters_runs_discovery_in_background(self):
+        app = self.make_app(windows=True, selected_adapters=False)
+        adapters = [
+            NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status="Up", has_gateway=True),
+            NetworkAdapter(name="Ethernet 2", description="Remote NDIS Compatible Device", status="Up"),
+        ]
+        background_messages = []
+
+        def run_background(message, work):
+            background_messages.append(message)
+            work()
+
+        app._run_background = run_background
+        with patch("rtsp_tool.gui.run_adapter_discovery", return_value=adapters) as discovery:
+            app.detect_network_adapters()
+
+        discovery.assert_called_once_with()
+        self.assertEqual(background_messages, ["正在检测 Windows 网络适配器..."])
+        self.assertEqual(app.selected_internet_adapter.get(), "Wi-Fi - Intel Wi-Fi")
+        self.assertEqual(app.selected_usb_adapter.get(), "Ethernet 2 - Remote NDIS Compatible Device")
+        self.assertIn("正在检测 Windows 网络适配器...", app.logged)
 
 
 if __name__ == "__main__":
