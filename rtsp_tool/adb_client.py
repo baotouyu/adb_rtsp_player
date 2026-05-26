@@ -11,6 +11,9 @@ SERVICE_NAME = "sample_smart_camera"
 SERVICE_PATH = "/usr/bin/sample_smart_camera"
 SERVICE_ARGS = "--rtsp-only"
 SERVICE_LOG = "/tmp/sample_smart_camera.log"
+YOLO_UPDATE_DIR = "/tmp/yolo_app_update"
+YOLO_APP_REMOTE_PATH = SERVICE_PATH
+YOLO_MODEL_REMOTE_PATH = "/network_binary.nb"
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,20 @@ class ADBClient:
     def stop_service_command(self, serial: str) -> list[str]:
         return build_shell_command(self.adb_path, serial, f"pkill {SERVICE_NAME}")
 
+    def prepare_yolo_update_command(self, serial: str) -> list[str]:
+        return build_shell_command(self.adb_path, serial, f"rm -rf {YOLO_UPDATE_DIR} && mkdir -p {YOLO_UPDATE_DIR}")
+
+    def push_yolo_file_command(self, serial: str, local_path: str, remote_path: str) -> list[str]:
+        return [self.adb_path, "-s", serial, "push", local_path, remote_path]
+
+    def install_yolo_update_command(self, serial: str) -> list[str]:
+        shell_command = (
+            f"cp {YOLO_UPDATE_DIR}/sample_smart_camera {YOLO_APP_REMOTE_PATH} && "
+            f"cp {YOLO_UPDATE_DIR}/network_binary.nb {YOLO_MODEL_REMOTE_PATH} && "
+            f"chmod +x {YOLO_APP_REMOTE_PATH} && sync && rm -rf {YOLO_UPDATE_DIR}"
+        )
+        return build_shell_command(self.adb_path, serial, shell_command)
+
     def command_exists(self, serial: str) -> bool:
         result = self.shell(serial, f"test -x {SERVICE_PATH}")
         return result.ok
@@ -173,6 +190,28 @@ class ADBClient:
         result = self.shell(serial, f"pkill {SERVICE_NAME}")
         self.stop_local_service_process(serial)
         return result
+
+    def install_yolo_package(self, serial: str, app_path: str, model_path: str) -> CommandResult:
+        steps = [
+            ["-s", serial, "shell", f"pkill {SERVICE_NAME} || true"],
+            ["-s", serial, "shell", f"rm -rf {YOLO_UPDATE_DIR} && mkdir -p {YOLO_UPDATE_DIR}"],
+            ["-s", serial, "push", app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera"],
+            ["-s", serial, "push", model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb"],
+            [
+                "-s",
+                serial,
+                "shell",
+                f"cp {YOLO_UPDATE_DIR}/sample_smart_camera {YOLO_APP_REMOTE_PATH} && "
+                f"cp {YOLO_UPDATE_DIR}/network_binary.nb {YOLO_MODEL_REMOTE_PATH} && "
+                f"chmod +x {YOLO_APP_REMOTE_PATH} && sync && rm -rf {YOLO_UPDATE_DIR}",
+            ],
+        ]
+        last_result = CommandResult([], 0, "", "")
+        for step in steps:
+            last_result = self.run(step)
+            if not last_result.ok:
+                return last_result
+        return last_result
 
     def stop_local_service_process(self, serial: str) -> None:
         process = self._service_processes.pop(serial, None)

@@ -4,6 +4,9 @@ from unittest.mock import patch
 from rtsp_tool.adb_client import (
     ADBClient,
     ADBDevice,
+    YOLO_APP_REMOTE_PATH,
+    YOLO_MODEL_REMOTE_PATH,
+    YOLO_UPDATE_DIR,
     build_shell_command,
     parse_adb_devices,
     parse_ifconfig_ip,
@@ -77,6 +80,83 @@ wlan0     Link encap:Ethernet
             client.stop_service_command("abc123"),
             ["adb", "-s", "abc123", "shell", "pkill sample_smart_camera"],
         )
+
+    def test_yolo_install_commands_are_exact(self):
+        client = ADBClient(adb_path="adb")
+
+        self.assertEqual(
+            client.prepare_yolo_update_command("abc123"),
+            ["adb", "-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"],
+        )
+        self.assertEqual(
+            client.push_yolo_file_command("abc123", "/local/sample_smart_camera", f"{YOLO_UPDATE_DIR}/sample_smart_camera"),
+            ["adb", "-s", "abc123", "push", "/local/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"],
+        )
+        self.assertEqual(
+            client.install_yolo_update_command("abc123"),
+            [
+                "adb",
+                "-s",
+                "abc123",
+                "shell",
+                "cp /tmp/yolo_app_update/sample_smart_camera /usr/bin/sample_smart_camera && "
+                "cp /tmp/yolo_app_update/network_binary.nb /network_binary.nb && "
+                "chmod +x /usr/bin/sample_smart_camera && sync && rm -rf /tmp/yolo_app_update",
+            ],
+        )
+        self.assertEqual(YOLO_APP_REMOTE_PATH, "/usr/bin/sample_smart_camera")
+        self.assertEqual(YOLO_MODEL_REMOTE_PATH, "/network_binary.nb")
+
+    def test_install_yolo_package_runs_stop_prepare_push_install_sequence(self):
+        client = ADBClient(adb_path="adb")
+        calls: list[tuple[list[str], float | None]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append((list(args), timeout))
+            return type("Result", (), {"ok": True, "stderr": "", "stdout": ""})()
+
+        with patch.object(client, "run", side_effect=fake_run):
+            result = client.install_yolo_package(
+                "abc123",
+                app_path="/local/yoloApp_苹果/sample_smart_camera",
+                model_path="/local/yoloApp_苹果/network_binary.nb",
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(
+            calls,
+            [
+                ((["-s", "abc123", "shell", "pkill sample_smart_camera || true"]), None),
+                ((["-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"]), None),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"]), None),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/network_binary.nb", "/tmp/yolo_app_update/network_binary.nb"]), None),
+                ((
+                    [
+                        "-s",
+                        "abc123",
+                        "shell",
+                        "cp /tmp/yolo_app_update/sample_smart_camera /usr/bin/sample_smart_camera && "
+                        "cp /tmp/yolo_app_update/network_binary.nb /network_binary.nb && "
+                        "chmod +x /usr/bin/sample_smart_camera && sync && rm -rf /tmp/yolo_app_update",
+                    ]
+                ), None),
+            ],
+        )
+
+    def test_install_yolo_package_stops_on_failed_push(self):
+        client = ADBClient(adb_path="adb")
+        results = [
+            type("Result", (), {"ok": True, "stderr": "", "stdout": ""})(),
+            type("Result", (), {"ok": True, "stderr": "", "stdout": ""})(),
+            type("Result", (), {"ok": False, "stderr": "push failed", "stdout": ""})(),
+        ]
+
+        with patch.object(client, "run", side_effect=results) as run:
+            result = client.install_yolo_package("abc123", "/local/app", "/local/model")
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stderr, "push failed")
+        self.assertEqual(run.call_count, 3)
 
     def test_start_service_uses_long_running_adb_process(self):
         client = ADBClient(adb_path="adb")
