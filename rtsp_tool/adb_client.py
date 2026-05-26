@@ -62,8 +62,14 @@ def _valid_device_ip(ip: str) -> bool:
         octets[0] == 127
         or octets[0] == 0
         or octets == [255, 255, 255, 255]
-        or (octets[0] == 169 and octets[1] == 254)
     )
+
+
+def _valid_usb0_ip(ip: str) -> bool:
+    if not _valid_device_ip(ip):
+        return False
+    octets = [int(part) for part in ip.split(".")]
+    return not (octets[0] == 169 and octets[1] == 254)
 
 
 def parse_ip_route_ip(output: str) -> str | None:
@@ -97,7 +103,7 @@ def parse_ifconfig_ip(output: str) -> str | None:
 def parse_usb0_ip(output: str) -> str | None:
     for match in re.finditer(r"\binet\s+(?:addr:)?(\d+\.\d+\.\d+\.\d+)\b", output):
         ip = match.group(1)
-        if _valid_device_ip(ip):
+        if _valid_usb0_ip(ip):
             return ip
     return None
 

@@ -62,6 +62,14 @@ wlan0     Link encap:Ethernet
 
         self.assertEqual(parse_ifconfig_ip(output), "192.168.2.2")
 
+    def test_parse_ifconfig_ip_allows_link_local_for_generic_discovery(self):
+        output = """
+wlan0     Link encap:Ethernet
+          inet addr:169.254.8.9  Bcast:169.254.255.255  Mask:255.255.0.0
+"""
+
+        self.assertEqual(parse_ifconfig_ip(output), "169.254.8.9")
+
     def test_parse_usb0_ip_accepts_ip_addr_output(self):
         output = """
 4: usb0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
