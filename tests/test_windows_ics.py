@@ -203,6 +203,17 @@ class WindowsIcsTests(unittest.TestCase):
 
         self.assertEqual(adapters, [NetworkAdapter(name="Ethernet", description="Realtek PCIe", status="Up", has_gateway=True)])
 
+    def test_parse_adapter_json_raises_runtime_error_for_malformed_json(self):
+        with self.assertRaisesRegex(RuntimeError, "网卡信息 JSON 解析失败"):
+            parse_adapter_json("{bad json")
+
+    def test_parse_adapter_json_raises_runtime_error_for_invalid_shapes(self):
+        with self.assertRaisesRegex(RuntimeError, "网卡信息 JSON 格式无效"):
+            parse_adapter_json("null")
+
+        with self.assertRaisesRegex(RuntimeError, "网卡信息 JSON 格式无效"):
+            parse_adapter_json('["bad"]')
+
     def test_build_adapter_discovery_command_contains_expected_powershell(self):
         command = build_adapter_discovery_command()
         command_text = " ".join(command)
@@ -256,6 +267,22 @@ class WindowsIcsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "网卡发现失败"):
             run_adapter_discovery(runner=lambda command, **kwargs: Completed())
 
+    def test_run_adapter_discovery_normalizes_runner_oserror(self):
+        def runner(command, **kwargs):
+            raise OSError("powershell missing")
+
+        with self.assertRaisesRegex(RuntimeError, "启动网卡发现命令失败"):
+            run_adapter_discovery(runner=runner)
+
+    def test_run_adapter_discovery_normalizes_malformed_json(self):
+        class Completed:
+            returncode = 0
+            stdout = "{bad json"
+            stderr = ""
+
+        with self.assertRaisesRegex(RuntimeError, "网卡信息 JSON 解析失败"):
+            run_adapter_discovery(runner=lambda command, **kwargs: Completed())
+
     def test_build_ics_script_contains_names_hnetshare_sharing_calls_and_result_path(self):
         script = build_ics_script(
             "Pub'lic Wi-Fi",
@@ -300,6 +327,37 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertEqual(success.message, "done")
         self.assertFalse(failure.ok)
         self.assertEqual(failure.message, "failed")
+
+    def test_load_ics_result_raises_runtime_error_for_missing_file(self):
+        with TemporaryDirectory() as tmpdir:
+            missing_path = Path(tmpdir) / "missing.json"
+
+            with self.assertRaisesRegex(RuntimeError, "读取 ICS 结果失败"):
+                load_ics_result(missing_path)
+
+    def test_load_ics_result_raises_runtime_error_for_malformed_json(self):
+        with TemporaryDirectory() as tmpdir:
+            result_path = Path(tmpdir) / "result.json"
+            result_path.write_text("{bad json", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "ICS 结果 JSON 解析失败"):
+                load_ics_result(result_path)
+
+    def test_load_ics_result_raises_runtime_error_for_non_object_json(self):
+        with TemporaryDirectory() as tmpdir:
+            result_path = Path(tmpdir) / "result.json"
+            result_path.write_text("[]", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "ICS 结果 JSON 格式无效"):
+                load_ics_result(result_path)
+
+    def test_load_ics_result_raises_runtime_error_for_string_ok(self):
+        with TemporaryDirectory() as tmpdir:
+            result_path = Path(tmpdir) / "result.json"
+            result_path.write_text('{"ok": "false", "message": "failed"}', encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "ICS 结果 JSON 格式无效"):
+                load_ics_result(result_path)
 
     def test_open_manual_network_settings_launches_ncpa_control_panel(self):
         calls = []

@@ -82,14 +82,22 @@ def parse_adapter_json(output: str) -> list[NetworkAdapter]:
     if not output.strip():
         return []
 
-    data = json.loads(output)
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("网卡信息 JSON 解析失败，请重新扫描网卡。") from exc
+
     if isinstance(data, dict):
         items = [data]
-    else:
+    elif isinstance(data, list):
         items = data
+    else:
+        raise RuntimeError("网卡信息 JSON 格式无效，请重新扫描网卡。")
 
     adapters: list[NetworkAdapter] = []
     for item in items:
+        if not isinstance(item, dict):
+            raise RuntimeError("网卡信息 JSON 格式无效，请重新扫描网卡。")
         gateway = item.get("IPv4DefaultGateway")
         adapters.append(
             NetworkAdapter(
@@ -103,12 +111,16 @@ def parse_adapter_json(output: str) -> list[NetworkAdapter]:
 
 
 def run_adapter_discovery(runner=subprocess.run) -> list[NetworkAdapter]:
-    completed = runner(
-        build_adapter_discovery_command(),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        completed = runner(
+            build_adapter_discovery_command(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"启动网卡发现命令失败: {exc}") from exc
+
     if completed.returncode != 0:
         message = (completed.stderr or "").strip() or "网卡发现失败"
         raise RuntimeError(message)
@@ -184,8 +196,20 @@ def build_elevated_ics_command(script_path: Path) -> list[str]:
 
 
 def load_ics_result(path: Path) -> IcsConfigResult:
-    data = json.loads(path.read_text(encoding="utf-8-sig"))
-    return IcsConfigResult(ok=bool(data.get("ok")), message=str(data.get("message") or ""))
+    try:
+        output = path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise RuntimeError(f"读取 ICS 结果失败: {exc}") from exc
+
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("ICS 结果 JSON 解析失败，请重试 ICS 配置。") from exc
+
+    if not isinstance(data, dict) or not isinstance(data.get("ok"), bool) or not isinstance(data.get("message"), str):
+        raise RuntimeError("ICS 结果 JSON 格式无效，请重试 ICS 配置。")
+
+    return IcsConfigResult(ok=data["ok"], message=data["message"])
 
 
 def open_manual_network_settings(runner=subprocess.run) -> None:
