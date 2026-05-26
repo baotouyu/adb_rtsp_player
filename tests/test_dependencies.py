@@ -151,8 +151,9 @@ class DependencyTests(unittest.TestCase):
             bundled_ffplay.chmod(0o644)
 
             with patch("rtsp_tool.dependencies.os.name", "posix"):
-                with patch("rtsp_tool.dependencies.shutil.which", return_value="/usr/local/bin/ffplay"):
-                    status = check_command("ffplay", app_dir=app_dir)
+                with patch("rtsp_tool.dependencies.os.access", return_value=False):
+                    with patch("rtsp_tool.dependencies.shutil.which", return_value="/usr/local/bin/ffplay"):
+                        status = check_command("ffplay", app_dir=app_dir)
 
         self.assertEqual(status.name, "ffplay")
         self.assertTrue(status.found)
