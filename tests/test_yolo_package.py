@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from rtsp_tool.yolo_package import (
@@ -52,8 +53,13 @@ class YoloPackageTests(unittest.TestCase):
             package_dir = Path(tmpdir) / "yoloApp_苹果"
             package_dir.mkdir()
 
-            with self.assertRaisesRegex(ValueError, "sample_smart_camera, network_binary.nb"):
+            with self.assertRaises(ValueError) as raised:
                 validate_yolo_package(package_dir)
+
+        self.assertEqual(
+            str(raised.exception),
+            "yoloApp_苹果 缺少必需文件：sample_smart_camera, network_binary.nb",
+        )
 
     def test_scan_yolo_packages_returns_only_valid_yolo_app_directories_sorted(self):
         with TemporaryDirectory() as tmpdir:
@@ -77,6 +83,70 @@ class YoloPackageTests(unittest.TestCase):
     def test_scan_yolo_packages_returns_empty_when_directory_is_missing(self):
         with TemporaryDirectory() as tmpdir:
             self.assertEqual(scan_yolo_packages(Path(tmpdir) / "missing"), [])
+
+    def test_scan_yolo_packages_returns_empty_when_root_is_dir_raises_oserror(self):
+        with TemporaryDirectory() as tmpdir:
+            apps_dir = Path(tmpdir) / "yolo_apps"
+            path_class = type(apps_dir)
+            original_is_dir = path_class.is_dir
+
+            def flaky_is_dir(path: Path) -> bool:
+                if path == apps_dir:
+                    raise OSError("permission denied")
+                return original_is_dir(path)
+
+            with patch.object(path_class, "is_dir", flaky_is_dir):
+                self.assertEqual(scan_yolo_packages(apps_dir), [])
+
+    def test_scan_yolo_packages_returns_empty_when_root_iterdir_raises_oserror(self):
+        with TemporaryDirectory() as tmpdir:
+            apps_dir = Path(tmpdir) / "yolo_apps"
+            apps_dir.mkdir()
+
+            with patch.object(type(apps_dir), "iterdir", side_effect=OSError("stale handle")):
+                self.assertEqual(scan_yolo_packages(apps_dir), [])
+
+    def test_scan_yolo_packages_skips_candidate_when_is_dir_raises_oserror(self):
+        with TemporaryDirectory() as tmpdir:
+            apps_dir = Path(tmpdir) / "yolo_apps"
+            valid = apps_dir / "yoloApp_good"
+            bad = apps_dir / "yoloApp_bad"
+            for package_dir in (valid, bad):
+                self._write(package_dir / REQUIRED_APP_FILENAME)
+                self._write(package_dir / REQUIRED_MODEL_FILENAME)
+            path_class = type(apps_dir)
+            original_is_dir = path_class.is_dir
+
+            def flaky_is_dir(path: Path) -> bool:
+                if path == bad:
+                    raise OSError("permission denied")
+                return original_is_dir(path)
+
+            with patch.object(path_class, "is_dir", flaky_is_dir):
+                packages = scan_yolo_packages(apps_dir)
+
+        self.assertEqual([package.name for package in packages], ["yoloApp_good"])
+
+    def test_scan_yolo_packages_skips_candidate_when_validation_raises_oserror(self):
+        with TemporaryDirectory() as tmpdir:
+            apps_dir = Path(tmpdir) / "yolo_apps"
+            valid = apps_dir / "yoloApp_good"
+            bad = apps_dir / "yoloApp_bad"
+            for package_dir in (valid, bad):
+                self._write(package_dir / REQUIRED_APP_FILENAME)
+                self._write(package_dir / REQUIRED_MODEL_FILENAME)
+            path_class = type(apps_dir)
+            original_is_file = path_class.is_file
+
+            def flaky_is_file(path: Path) -> bool:
+                if path.parent == bad:
+                    raise OSError("stale handle")
+                return original_is_file(path)
+
+            with patch.object(path_class, "is_file", flaky_is_file):
+                packages = scan_yolo_packages(apps_dir)
+
+        self.assertEqual([package.name for package in packages], ["yoloApp_good"])
 
 
 if __name__ == "__main__":

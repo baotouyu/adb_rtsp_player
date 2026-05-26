@@ -32,7 +32,14 @@ def validate_yolo_package(package_dir: Path | str) -> YoloPackage:
     path = Path(package_dir)
     app_path = path / REQUIRED_APP_FILENAME
     model_path = path / REQUIRED_MODEL_FILENAME
-    missing = [filename for filename, file_path in ((REQUIRED_APP_FILENAME, app_path), (REQUIRED_MODEL_FILENAME, model_path)) if not file_path.is_file()]
+    required_files = (
+        (REQUIRED_APP_FILENAME, app_path),
+        (REQUIRED_MODEL_FILENAME, model_path),
+    )
+    missing: list[str] = []
+    for filename, file_path in required_files:
+        if not file_path.is_file():
+            missing.append(filename)
     if missing:
         raise ValueError(f"{path.name} 缺少必需文件：{', '.join(missing)}")
     return YoloPackage(
@@ -46,14 +53,21 @@ def validate_yolo_package(package_dir: Path | str) -> YoloPackage:
 
 def scan_yolo_packages(apps_dir: Path | str) -> list[YoloPackage]:
     root = Path(apps_dir)
-    if not root.is_dir():
+    try:
+        if not root.is_dir():
+            return []
+        candidates = sorted(root.iterdir(), key=lambda item: item.name)
+    except OSError:
         return []
+
     packages: list[YoloPackage] = []
-    for candidate in sorted(root.iterdir(), key=lambda item: item.name):
-        if not candidate.is_dir() or not candidate.name.startswith(PACKAGE_PREFIX):
+    for candidate in candidates:
+        if not candidate.name.startswith(PACKAGE_PREFIX):
             continue
         try:
+            if not candidate.is_dir():
+                continue
             packages.append(validate_yolo_package(candidate))
-        except ValueError:
+        except (OSError, ValueError):
             continue
     return packages
