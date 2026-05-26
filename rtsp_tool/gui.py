@@ -17,6 +17,8 @@ from .windows_ics import (
     adapter_choice_map,
     choose_single_internet_adapter,
     choose_single_usb_adapter,
+    configure_ics,
+    open_manual_network_settings as open_windows_network_settings,
     run_adapter_discovery,
     select_internet_adapters,
     select_usb_adapters,
@@ -417,18 +419,63 @@ class RTSPToolApp:
         return ""
 
     def configure_usb_sharing(self) -> None:
-        self._show_usb_sharing_placeholder("自动配置 USB 网络共享")
+        internet_adapter = self._selected_internet_adapter()
+        usb_adapter = self._selected_usb_adapter()
+        if not internet_adapter or not usb_adapter:
+            messagebox.showwarning("未选择网卡", "请先检测并选择上网网卡和板子 USB 网卡。")
+            return
+
+        confirmed = messagebox.askyesno(
+            "确认配置 USB 网络共享",
+            "这会修改 Windows 网络共享设置，并可能弹出管理员权限确认。是否继续？",
+        )
+        if not confirmed:
+            return
+
+        def work() -> None:
+            self._ui(self.log, "正在请求管理员权限配置 Windows 网络共享...")
+            result = configure_ics(internet_adapter.name, usb_adapter.name)
+            self._ui(self.usb_sharing_status.set, result.message)
+            if result.ok:
+                self._ui(self.log, "ICS 配置完成。请等待板端 usb0 通过 DHCP 获取 IP。")
+                return
+            self._ui(self.log, f"未能自动配置 ICS：{result.message}")
+            self._ui(self.open_manual_network_settings)
+
+        self._run_background("正在配置 USB 网络共享...", work)
 
     def open_manual_network_settings(self) -> None:
-        self._show_usb_sharing_placeholder("打开手动网络设置")
+        try:
+            open_windows_network_settings()
+        except Exception as exc:
+            self.log(f"打开 Windows 网络连接页面失败：{exc}")
+
+        manual_steps = (
+            "手动设置步骤：右键上网网卡 -> 属性 -> 共享 -> 勾选允许共享 -> "
+            "家庭网络连接选择板子 RNDIS/USB 网卡。"
+        )
+        self.usb_sharing_status.set(manual_steps)
+        self.log(manual_steps)
 
     def detect_usb0_ip(self) -> None:
-        self._show_usb_sharing_placeholder("检测 usb0 IP")
+        device = self._require_selected_device()
+        if not device:
+            return
 
-    def _show_usb_sharing_placeholder(self, action: str) -> None:
-        message = f"{action}功能尚未执行，将在后续步骤实现；当前不会修改系统或设备。"
-        self.usb_sharing_status.set(message)
-        self.log(message)
+        def work() -> None:
+            self._ui(self.log, f"正在检测设备 {device.serial} 的 usb0 IP...")
+            ip = self.adb.discover_usb0_ip(device.serial)
+            if not ip:
+                raise RuntimeError("没有检测到 usb0 IP。请确认 Windows ICS 已启用，并等待板端 DHCP 获取地址。")
+            url = build_rtsp_url(ip)
+            self._ui(self.device_ip.set, ip)
+            self._ui(self.rtsp_url.set, url)
+            self._ui(self.usb_sharing_status.set, f"板端 usb0 IP：{ip}")
+            self._ui(self.log, f"板端 usb0 IP：{ip}")
+            self._ui(self.log, f"RTSP 地址：{url}")
+            self._ui(self._update_button_states)
+
+        self._run_background("正在检测 usb0 IP...", work)
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
         if getattr(self, "_operation_in_progress", False):

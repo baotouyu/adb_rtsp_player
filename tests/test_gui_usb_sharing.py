@@ -47,12 +47,20 @@ class FakeRoot:
     def __init__(self):
         self.row_configs = {}
         self.column_configs = {}
+        self.cursor = ""
 
     def rowconfigure(self, row, **kwargs):
         self.row_configs[row] = kwargs
 
     def columnconfigure(self, column, **kwargs):
         self.column_configs[column] = kwargs
+
+    def config(self, **kwargs):
+        if "cursor" in kwargs:
+            self.cursor = kwargs["cursor"]
+
+    def after(self, _delay, callback):
+        callback()
 
 
 class FakeWidget:
@@ -126,9 +134,12 @@ class GuiUsbSharingTests(unittest.TestCase):
 
     def make_app(self, *, windows=True, selected_adapters=True, usable_device=True, busy=False):
         app = object.__new__(RTSPToolApp)
+        app.root = FakeRoot()
+        app.status_text = FakeVar("")
         app.dependencies = {"adb": SimpleNamespace(found=True), "ffplay": SimpleNamespace(found=True)}
-        app.devices = {"abc": SimpleNamespace(state="device" if usable_device else "offline")}
+        app.devices = {"abc": SimpleNamespace(serial="abc", state="device" if usable_device else "offline")}
         app.selected_serial = FakeVar("abc")
+        app.device_ip = FakeVar("")
         app.rtsp_url = FakeVar("")
         app.player = SimpleNamespace(is_running=lambda: False)
         app.selected_yolo_package = FakeVar("")
@@ -148,6 +159,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         app.logged = []
         app.log = app.logged.append
         app._ui = lambda func, *args: func(*args)
+        app.adb = SimpleNamespace(discover_usb0_ip=lambda _serial: None)
 
         for name in (
             "refresh_button",
@@ -167,6 +179,24 @@ class GuiUsbSharingTests(unittest.TestCase):
         ):
             setattr(app, name, FakeButton())
         return app
+
+    def use_sync_background(self, app, showerror=None):
+        background_messages = []
+
+        def run_background(message, work):
+            background_messages.append(message)
+            app._set_busy(message)
+            try:
+                work()
+            except Exception as exc:
+                app.log(f"错误：{exc}")
+                if showerror is not None:
+                    showerror("操作失败", str(exc))
+            finally:
+                app._clear_busy()
+
+        app._run_background = run_background
+        return background_messages
 
     def make_real_app(self, root):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -437,25 +467,138 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(app.usb_sharing_status.get(), "未检测到可用网卡。请检查网络和 USB/RNDIS 连接后重新检测。")
         self.assertEqual(app.configure_usb_sharing_button.state, "disabled")
 
-    def test_task7_placeholder_actions_update_status_and_log_not_executed(self):
+    def test_configure_usb_sharing_cancel_does_not_run_ics(self):
         app = self.make_app(windows=True, selected_adapters=True)
 
-        actions = (
-            app.configure_usb_sharing,
-            app.open_manual_network_settings,
-            app.detect_usb0_ip,
+        def fail_run_background(message, work):
+            self.fail("_run_background should not be called when the user cancels ICS configuration")
+
+        app._run_background = fail_run_background
+        with patch("rtsp_tool.gui.messagebox.askyesno", return_value=False) as askyesno, patch(
+            "rtsp_tool.gui.configure_ics"
+        ) as configure_ics:
+            app.configure_usb_sharing()
+
+        askyesno.assert_called_once_with(
+            "确认配置 USB 网络共享",
+            "这会修改 Windows 网络共享设置，并可能弹出管理员权限确认。是否继续？",
         )
-        for action in actions:
-            app.logged.clear()
-            app.usb_sharing_status.set("")
+        configure_ics.assert_not_called()
 
-            action()
+    def test_configure_usb_sharing_warns_without_selected_adapters(self):
+        app = self.make_app(windows=True, selected_adapters=False)
 
-            combined_log = "\n".join(app.logged)
-            self.assertIn("尚未执行", app.usb_sharing_status.get())
-            self.assertIn("将在后续步骤实现", app.usb_sharing_status.get())
-            self.assertIn("尚未执行", combined_log)
-            self.assertIn("将在后续步骤实现", combined_log)
+        def fail_run_background(message, work):
+            self.fail("_run_background should not be called without both selected adapters")
+
+        app._run_background = fail_run_background
+        with patch("rtsp_tool.gui.messagebox.showwarning") as showwarning, patch(
+            "rtsp_tool.gui.messagebox.askyesno"
+        ) as askyesno, patch("rtsp_tool.gui.configure_ics") as configure_ics:
+            app.configure_usb_sharing()
+
+        showwarning.assert_called_once_with(
+            "未选择网卡",
+            "请先检测并选择上网网卡和板子 USB 网卡。",
+        )
+        askyesno.assert_not_called()
+        configure_ics.assert_not_called()
+
+    def test_configure_usb_sharing_success_updates_status(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        background_messages = []
+
+        def run_background(message, work):
+            background_messages.append(message)
+            work()
+
+        app._run_background = run_background
+        result = SimpleNamespace(ok=True, message="ICS 配置成功")
+        with patch("rtsp_tool.gui.messagebox.askyesno", return_value=True), patch(
+            "rtsp_tool.gui.configure_ics", return_value=result
+        ) as configure_ics:
+            app.configure_usb_sharing()
+
+        configure_ics.assert_called_once_with("Wi-Fi", "USB RNDIS")
+        self.assertEqual(background_messages, ["正在配置 USB 网络共享..."])
+        self.assertEqual(app.usb_sharing_status.get(), "ICS 配置成功")
+        log_text = "\n".join(app.logged)
+        self.assertIn("正在请求管理员权限配置 Windows 网络共享...", log_text)
+        self.assertIn("ICS 配置完成。请等待板端 usb0 通过 DHCP 获取 IP。", log_text)
+
+    def test_configure_usb_sharing_failure_opens_manual_settings(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        app._run_background = lambda _message, work: work()
+        manual_calls = []
+        app.open_manual_network_settings = lambda: manual_calls.append("opened")
+        result = SimpleNamespace(ok=False, message="管理员授权被取消")
+
+        with patch("rtsp_tool.gui.messagebox.askyesno", return_value=True), patch(
+            "rtsp_tool.gui.configure_ics", return_value=result
+        ) as configure_ics:
+            app.configure_usb_sharing()
+
+        configure_ics.assert_called_once_with("Wi-Fi", "USB RNDIS")
+        self.assertEqual(app.usb_sharing_status.get(), "管理员授权被取消")
+        self.assertEqual(manual_calls, ["opened"])
+        self.assertIn("未能自动配置 ICS：管理员授权被取消", "\n".join(app.logged))
+
+    def test_open_manual_network_settings_logs_steps_and_handles_open_failure(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+
+        with patch(
+            "rtsp_tool.gui.open_windows_network_settings",
+            side_effect=OSError("control panel unavailable"),
+        ) as open_settings:
+            app.open_manual_network_settings()
+
+        open_settings.assert_called_once_with()
+        self.assertIn("打开 Windows 网络连接页面失败：control panel unavailable", "\n".join(app.logged))
+        manual_steps = (
+            "手动设置步骤：右键上网网卡 -> 属性 -> 共享 -> 勾选允许共享 -> "
+            "家庭网络连接选择板子 RNDIS/USB 网卡。"
+        )
+        self.assertEqual(app.usb_sharing_status.get(), manual_steps)
+        self.assertIn(manual_steps, "\n".join(app.logged))
+
+    def test_detect_usb0_ip_updates_rtsp_url(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        background_messages = []
+        update_calls = []
+
+        def run_background(message, work):
+            background_messages.append(message)
+            work()
+
+        app._run_background = run_background
+        app._update_button_states = lambda: update_calls.append("updated")
+        app.adb = SimpleNamespace(discover_usb0_ip=lambda serial: "192.168.137.33")
+
+        app.detect_usb0_ip()
+
+        self.assertEqual(background_messages, ["正在检测 usb0 IP..."])
+        self.assertEqual(app.device_ip.get(), "192.168.137.33")
+        self.assertEqual(app.rtsp_url.get(), "rtsp://192.168.137.33:8554/ch0")
+        self.assertEqual(app.usb_sharing_status.get(), "板端 usb0 IP：192.168.137.33")
+        self.assertEqual(update_calls, ["updated"])
+        log_text = "\n".join(app.logged)
+        self.assertIn("正在检测设备 abc 的 usb0 IP...", log_text)
+        self.assertIn("板端 usb0 IP：192.168.137.33", log_text)
+        self.assertIn("RTSP 地址：rtsp://192.168.137.33:8554/ch0", log_text)
+
+    def test_detect_usb0_ip_missing_ip_is_logged_by_background(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        messages = []
+        app.adb = SimpleNamespace(discover_usb0_ip=lambda serial: None)
+        self.use_sync_background(app, showerror=lambda title, message: messages.append((title, message)))
+
+        app.detect_usb0_ip()
+
+        expected = "没有检测到 usb0 IP。请确认 Windows ICS 已启用，并等待板端 DHCP 获取地址。"
+        self.assertEqual(messages, [("操作失败", expected)])
+        self.assertIn(f"错误：{expected}", app.logged)
+        self.assertEqual(app.device_ip.get(), "")
+        self.assertEqual(app.rtsp_url.get(), "")
 
     def test_detect_network_adapters_skips_on_non_windows(self):
         app = self.make_app(windows=False)
