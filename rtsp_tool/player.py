@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from typing import Sequence
 
 
@@ -26,25 +27,29 @@ class PlayerController:
     def __init__(self, ffplay_path: str = "ffplay"):
         self.ffplay_path = ffplay_path
         self.process: subprocess.Popen[str] | None = None
+        self._lock = threading.RLock()
 
     def is_running(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+        with self._lock:
+            return self.process is not None and self.process.poll() is None
 
     def start(self, rtsp_url: str) -> Sequence[str]:
-        if self.is_running():
-            self.stop()
-        command = build_ffplay_command(self.ffplay_path, rtsp_url)
-        self.process = subprocess.Popen(command)
-        return command
+        with self._lock:
+            if self.is_running():
+                self.stop()
+            command = build_ffplay_command(self.ffplay_path, rtsp_url)
+            self.process = subprocess.Popen(command)
+            return command
 
     def stop(self) -> None:
-        if not self.process:
-            return
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=3)
-        self.process = None
+        with self._lock:
+            if not self.process:
+                return
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=3)
+            self.process = None

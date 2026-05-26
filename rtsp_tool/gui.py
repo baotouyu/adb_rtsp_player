@@ -71,6 +71,7 @@ class RTSPToolApp:
         self.selected_yolo_package = tk.StringVar(value="")
         self.start_after_update = tk.BooleanVar(value=False)
         self.yolo_apps_path = yolo_apps_dir(get_app_dir())
+        self._operation_in_progress = False
 
         self._build_ui()
         self._render_dependency_status()
@@ -210,10 +211,13 @@ class RTSPToolApp:
         return dependency_log_text(status)
 
     def _set_busy(self, message: str) -> None:
+        self._operation_in_progress = True
         self.status_text.set(message)
         self.root.config(cursor="watch")
+        self._update_button_states()
 
     def _clear_busy(self) -> None:
+        self._operation_in_progress = False
         self.status_text.set(state_text("ready"))
         self.root.config(cursor="")
         self._update_button_states()
@@ -226,18 +230,26 @@ class RTSPToolApp:
         has_usable_device = bool(device and device.state == "device")
         has_url = bool(self.rtsp_url.get())
         has_yolo_package = self._selected_yolo_package() is not None
+        busy = getattr(self, "_operation_in_progress", False)
 
-        self.refresh_button.configure(state="normal" if has_adb else "disabled")
-        state_for_device = "normal" if has_adb and has_device else "disabled"
+        self.refresh_button.configure(state="normal" if has_adb and not busy else "disabled")
+        state_for_device = "normal" if has_adb and has_device and not busy else "disabled"
         self.start_service_button.configure(state=state_for_device)
         self.stop_service_button.configure(state=state_for_device)
-        self.start_playback_button.configure(state="normal" if has_adb and has_ffplay and has_device else "disabled")
-        self.stop_playback_button.configure(state="normal" if self.player.is_running() else "disabled")
+        self.start_playback_button.configure(
+            state="normal" if has_adb and has_ffplay and has_device and not busy else "disabled"
+        )
+        self.stop_playback_button.configure(state="normal" if self.player.is_running() and not busy else "disabled")
         self.copy_button.configure(state="normal" if has_url else "disabled")
         self.refresh_yolo_button.configure(state="normal")
-        self.update_yolo_button.configure(state="normal" if has_adb and has_usable_device and has_yolo_package else "disabled")
+        self.update_yolo_button.configure(
+            state="normal" if has_adb and has_usable_device and has_yolo_package and not busy else "disabled"
+        )
 
     def _run_background(self, message: str, work: Callable[[], T]) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            self.log("已有操作正在执行，请稍候。")
+            return
         self._set_busy(message)
 
         def target() -> None:
