@@ -175,7 +175,7 @@ try {{
 
 
 def build_elevated_ics_command(script_path: Path) -> list[str]:
-    quoted_script = _ps_single_quote(str(script_path))
+    quoted_script = _ps_single_quote(subprocess.list2cmdline([str(script_path)]))
     script = (
         "$arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "
         f"{quoted_script}); Start-Process powershell -Verb RunAs -Wait -ArgumentList $arguments"

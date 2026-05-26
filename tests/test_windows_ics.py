@@ -247,6 +247,15 @@ class WindowsIcsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "access denied"):
             run_adapter_discovery(runner=lambda command, **kwargs: Completed())
 
+    def test_run_adapter_discovery_raises_runtime_error_with_chinese_fallback_on_failure(self):
+        class Completed:
+            returncode = 1
+            stdout = ""
+            stderr = ""
+
+        with self.assertRaisesRegex(RuntimeError, "网卡发现失败"):
+            run_adapter_discovery(runner=lambda command, **kwargs: Completed())
+
     def test_build_ics_script_contains_names_hnetshare_sharing_calls_and_result_path(self):
         script = build_ics_script(
             "Pub'lic Wi-Fi",
@@ -269,6 +278,13 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertIn("-Verb RunAs", command_text)
         self.assertIn("-Wait", command_text)
         self.assertIn("configure-ics.ps1", command_text)
+
+    def test_build_elevated_ics_command_quotes_spaced_script_path_as_single_file_argument(self):
+        command = build_elevated_ics_command(Path(r"C:\Users\A B\enable-ics.ps1"))
+        command_text = " ".join(command)
+
+        self.assertIn("'-File'", command_text)
+        self.assertIn("'\"C:\\Users\\A B\\enable-ics.ps1\"'", command_text)
 
     def test_load_ics_result_reads_success_and_failure_json(self):
         with TemporaryDirectory() as tmpdir:
