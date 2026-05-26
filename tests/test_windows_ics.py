@@ -44,6 +44,16 @@ class WindowsIcsTests(unittest.TestCase):
 
         self.assertEqual([adapter.name for adapter in selected], ["Board LAN", "Lab USB Link"])
 
+    def test_select_usb_adapters_excludes_upstream_usb_ethernet_with_gateway(self):
+        adapters = [
+            NetworkAdapter(name="USB-C Ethernet Adapter", description="Realtek USB GbE", status="Up", has_gateway=True),
+            NetworkAdapter(name="USB Ethernet Gadget", description="Board link", status="Up", has_gateway=False),
+        ]
+
+        selected = select_usb_adapters(adapters)
+
+        self.assertEqual([adapter.name for adapter in selected], ["USB Ethernet Gadget"])
+
     def test_select_internet_adapters_excludes_usb_candidates_and_requires_gateway(self):
         adapters = [
             NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status="Up", has_gateway=True),
@@ -67,6 +77,30 @@ class WindowsIcsTests(unittest.TestCase):
         selected = select_internet_adapters(adapters)
 
         self.assertEqual([adapter.name for adapter in selected], ["WLAN", "以太网"])
+
+    def test_select_internet_adapters_excludes_virtual_tunnel_and_bridge_adapters(self):
+        adapters = [
+            NetworkAdapter(name="vEthernet (WSL)", description="Hyper-V Virtual Ethernet", status="Up", has_gateway=True),
+            NetworkAdapter(name="VPN Ethernet", description="WireGuard Tunnel", status="Connected", has_gateway=True),
+            NetworkAdapter(name="VMware Network", description="VMware Virtual Ethernet Adapter", status="Up", has_gateway=True),
+            NetworkAdapter(name="VirtualBox Host-Only Ethernet", description="VirtualBox Host-Only", status="Up", has_gateway=True),
+            NetworkAdapter(name="Network Bridge", description="Ethernet Bridge", status="Up", has_gateway=True),
+            NetworkAdapter(name="Ethernet", description="Realtek PCIe", status="Up", has_gateway=True),
+        ]
+
+        selected = select_internet_adapters(adapters)
+
+        self.assertEqual([adapter.name for adapter in selected], ["Ethernet"])
+
+    def test_select_internet_adapters_accepts_trimmed_and_chinese_connected_status(self):
+        adapters = [
+            NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status=" 已连接 ", has_gateway=True),
+            NetworkAdapter(name="Ethernet", description="Realtek PCIe", status=" connected ", has_gateway=True),
+        ]
+
+        selected = select_internet_adapters(adapters)
+
+        self.assertEqual([adapter.name for adapter in selected], ["Wi-Fi", "Ethernet"])
 
     def test_choose_single_returns_adapter_only_when_exactly_one_candidate_exists(self):
         wifi = NetworkAdapter(name="Wi-Fi", description="Intel Wi-Fi", status="Up", has_gateway=True)
@@ -99,6 +133,18 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertIs(choices["Ethernet (1)"], first)
         self.assertIs(choices["Ethernet (2)"], second)
         self.assertIs(choices["Wi-Fi - Intel Wi-Fi"], third)
+
+    def test_adapter_choice_map_disambiguates_without_colliding_with_existing_labels(self):
+        first = NetworkAdapter(name="Ethernet", description="", status="Up", has_gateway=False)
+        second = NetworkAdapter(name="Ethernet", description="Ethernet", status="Up", has_gateway=False)
+        existing = NetworkAdapter(name="Ethernet (1)", description="", status="Up", has_gateway=False)
+
+        choices = adapter_choice_map([first, second, existing])
+
+        self.assertEqual(set(choices), {"Ethernet (1)", "Ethernet (2)", "Ethernet (3)"})
+        self.assertIs(choices["Ethernet (1)"], existing)
+        self.assertIs(choices["Ethernet (2)"], first)
+        self.assertIs(choices["Ethernet (3)"], second)
 
     def test_is_windows_uses_platform_system(self):
         with patch("rtsp_tool.windows_ics.platform.system", return_value="Windows"):
