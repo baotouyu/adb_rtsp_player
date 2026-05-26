@@ -27,3 +27,6 @@ tools/
 
 # Local agent planning artifacts
 docs/superpowers/
+
+# Local YOLO app/model packages
+yolo_apps/

@@ -12,6 +12,8 @@
 - 未运行时自动执行：`/usr/bin/sample_smart_camera --rtsp-only`
 - 自动读取板端 IP
 - 自动生成：`rtsp://<设备IP>:8554/ch0`
+- 扫描本地 `yolo_apps/yoloApp_*` 应用和模型包
+- 一键覆盖更新板端 app/model
 - 用独立 `ffplay` 窗口播放
 - 支持停止本机播放、停止板端推流服务、复制 RTSP 地址
 
@@ -67,6 +69,27 @@ tools/ffmpeg/ffplay.exe
 ```
 
 如果没有内置工具，会继续从系统 `PATH` 查找 `adb` 和 `ffplay`。
+
+## YOLO App 和模型包更新
+
+本工具可以扫描本地 `yolo_apps/yoloApp_*` 目录，把一组配套的 YOLO app 和模型更新到板端。推荐把 `yolo_apps/` 放在源码目录旁边；Windows 免安装版用户也可以把它放在 exe 所在的应用文件夹旁边。
+
+本地目录格式示例：
+
+```text
+yolo_apps/
+  yoloApp_苹果/
+    sample_smart_camera
+    network_binary.nb
+```
+
+使用约定：
+
+- 文件夹名使用 `yoloApp_xxx`，其中 `xxx` 用来描述检测目标，例如 `yoloApp_苹果`。
+- `sample_smart_camera` 和 `network_binary.nb` 是一对 app/model，应放在同一个 `yoloApp_xxx` 文件夹内，并保持名称和路径匹配。
+- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。
+- 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务；不勾选时只完成文件更新。
+- `yolo_apps/` 已加入 `.gitignore`，不会提交到 git，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹旁边即可。
 
 ## 板端要求
 
