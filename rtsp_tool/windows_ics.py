@@ -10,7 +10,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
-from typing import Iterable
+from typing import Any, Callable, Iterable
 
 
 USB_KEYWORDS = (
@@ -34,6 +34,7 @@ INTERNET_EXCLUDE_KEYWORDS = (
     "bridge",
 )
 CONNECTED_STATUSES = {"up", "connected", "已连接"}
+Runner = Callable[..., Any]
 
 
 @dataclass(frozen=True)
@@ -214,14 +215,25 @@ def load_ics_result(path: Path) -> IcsConfigResult:
     return IcsConfigResult(ok=data["ok"], message=data["message"])
 
 
-def configure_ics(public_adapter_name, private_adapter_name, temp_dir=None, runner=subprocess.run) -> IcsConfigResult:
+def configure_ics(
+    public_adapter_name: str,
+    private_adapter_name: str,
+    temp_dir: str | Path | None = None,
+    runner: Runner = subprocess.run,
+) -> IcsConfigResult:
     owns_temp_dir = temp_dir is None
-    work_dir = Path(tempfile.mkdtemp(prefix="rtsp-ics-")) if owns_temp_dir else Path(temp_dir)
-    script_path = work_dir / "enable-ics.ps1"
-    result_path = work_dir / "ics-result.json"
+    work_dir: Path | None = None
 
     try:
+        work_dir = Path(tempfile.mkdtemp(prefix="rtsp-ics-")) if owns_temp_dir else Path(temp_dir)
+        script_path = work_dir / "enable-ics.ps1"
+        result_path = work_dir / "ics-result.json"
+
         work_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            result_path.unlink()
+        except FileNotFoundError:
+            pass
         script_path.write_text(
             build_ics_script(public_adapter_name, private_adapter_name, result_path),
             encoding="utf-8",
@@ -238,12 +250,17 @@ def configure_ics(public_adapter_name, private_adapter_name, temp_dir=None, runn
             return IcsConfigResult(ok=False, message=f"启动 ICS 配置脚本失败: {exc}")
 
         if result_path.exists():
-            return load_ics_result(result_path)
+            try:
+                return load_ics_result(result_path)
+            except RuntimeError as exc:
+                return IcsConfigResult(ok=False, message=str(exc))
         if completed.returncode != 0:
             return IcsConfigResult(ok=False, message="管理员授权被取消，或 Windows ICS 配置脚本未完成。")
         return IcsConfigResult(ok=False, message="Windows ICS 配置脚本没有返回结果。")
+    except OSError as exc:
+        return IcsConfigResult(ok=False, message=f"准备 ICS 配置脚本失败: {exc}")
     finally:
-        if owns_temp_dir:
+        if owns_temp_dir and work_dir is not None:
             shutil.rmtree(work_dir, ignore_errors=True)
 
 

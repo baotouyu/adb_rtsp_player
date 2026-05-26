@@ -428,6 +428,24 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("管理员", result.message)
 
+    def test_configure_ics_ignores_stale_result_when_user_cancels_uac(self):
+        class Completed:
+            returncode = 1
+            stdout = ""
+            stderr = "cancelled"
+
+        with TemporaryDirectory() as tmpdir:
+            temp_path = Path(tmpdir)
+            result_path = temp_path / "ics-result.json"
+            result_path.write_text(json.dumps({"ok": True, "message": "stale success"}), encoding="utf-8")
+
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=temp_path, runner=lambda command, **kwargs: Completed())
+
+            self.assertFalse(result_path.exists())
+
+        self.assertFalse(result.ok)
+        self.assertIn("管理员", result.message)
+
     def test_configure_ics_returns_failure_when_script_returns_without_result(self):
         class Completed:
             returncode = 0
@@ -440,6 +458,23 @@ class WindowsIcsTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("没有返回结果", result.message)
 
+    def test_configure_ics_returns_failure_when_result_json_is_malformed(self):
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        with TemporaryDirectory() as tmpdir:
+            def runner(command, **kwargs):
+                script_path = self._extract_script_path_from_elevated_command(command)
+                script_path.with_name("ics-result.json").write_text("{bad json", encoding="utf-8")
+                return Completed()
+
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=Path(tmpdir), runner=runner)
+
+        self.assertFalse(result.ok)
+        self.assertIn("ICS 结果", result.message)
+
     def test_configure_ics_returns_failure_when_runner_oserror(self):
         def runner(command, **kwargs):
             raise OSError("powershell missing")
@@ -449,6 +484,20 @@ class WindowsIcsTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("启动 ICS 配置脚本失败", result.message)
+
+    def test_configure_ics_returns_failure_when_script_write_fails(self):
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+
+        with TemporaryDirectory() as tmpdir:
+            with patch("rtsp_tool.windows_ics.Path.write_text", side_effect=OSError("disk full")):
+                result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=Path(tmpdir), runner=runner)
+
+        self.assertFalse(result.ok)
+        self.assertIn("ICS 配置脚本", result.message)
+        self.assertEqual(calls, [])
 
     def test_configure_ics_removes_owned_temp_directory(self):
         class Completed:
