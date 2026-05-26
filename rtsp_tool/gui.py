@@ -27,6 +27,14 @@ from .yolo_package import YoloPackage, scan_yolo_packages, yolo_apps_dir
 
 
 T = TypeVar("T")
+USB_SHARING_WINDOWS_ONLY_MESSAGE = "USB 网络共享自动配置仅适用于 Windows。"
+
+
+def _manual_ics_steps() -> str:
+    return (
+        "手动设置步骤：右键上网网卡 -> 属性 -> 共享 -> 勾选允许共享 -> "
+        "家庭网络连接选择板子 RNDIS/USB 网卡。"
+    )
 
 
 def _found_dependency_location(status: DependencyStatus) -> str:
@@ -419,6 +427,10 @@ class RTSPToolApp:
         return ""
 
     def configure_usb_sharing(self) -> None:
+        if not self._is_windows():
+            self._show_usb_sharing_windows_only_message()
+            return
+
         internet_adapter = self._selected_internet_adapter()
         usb_adapter = self._selected_usb_adapter()
         if not internet_adapter or not usb_adapter:
@@ -445,17 +457,22 @@ class RTSPToolApp:
         self._run_background("正在配置 USB 网络共享...", work)
 
     def open_manual_network_settings(self) -> None:
+        if not self._is_windows():
+            self._show_usb_sharing_windows_only_message()
+            return
+
         try:
             open_windows_network_settings()
         except Exception as exc:
             self.log(f"打开 Windows 网络连接页面失败：{exc}")
 
-        manual_steps = (
-            "手动设置步骤：右键上网网卡 -> 属性 -> 共享 -> 勾选允许共享 -> "
-            "家庭网络连接选择板子 RNDIS/USB 网卡。"
-        )
+        manual_steps = _manual_ics_steps()
         self.usb_sharing_status.set(manual_steps)
         self.log(manual_steps)
+
+    def _show_usb_sharing_windows_only_message(self) -> None:
+        self.usb_sharing_status.set(USB_SHARING_WINDOWS_ONLY_MESSAGE)
+        self.log(USB_SHARING_WINDOWS_ONLY_MESSAGE)
 
     def detect_usb0_ip(self) -> None:
         device = self._require_selected_device()

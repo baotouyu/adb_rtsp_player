@@ -3,7 +3,7 @@ from contextlib import ExitStack
 import tempfile
 import tkinter as tk
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from rtsp_tool.dependencies import DependencyStatus
 from rtsp_tool.gui import RTSPToolApp
@@ -485,6 +485,23 @@ class GuiUsbSharingTests(unittest.TestCase):
         )
         configure_ics.assert_not_called()
 
+    def test_configure_usb_sharing_skips_direct_call_on_non_windows(self):
+        app = self.make_app(windows=False, selected_adapters=True)
+
+        def fail_run_background(message, work):
+            self.fail("_run_background should not be called on non-Windows hosts")
+
+        app._run_background = fail_run_background
+        with patch("rtsp_tool.gui.messagebox.askyesno") as askyesno, patch(
+            "rtsp_tool.gui.configure_ics"
+        ) as configure_ics:
+            app.configure_usb_sharing()
+
+        self.assertEqual(app.usb_sharing_status.get(), "USB 网络共享自动配置仅适用于 Windows。")
+        self.assertIn("USB 网络共享自动配置仅适用于 Windows。", app.logged)
+        askyesno.assert_not_called()
+        configure_ics.assert_not_called()
+
     def test_configure_usb_sharing_warns_without_selected_adapters(self):
         app = self.make_app(windows=True, selected_adapters=False)
 
@@ -543,6 +560,47 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(manual_calls, ["opened"])
         self.assertIn("未能自动配置 ICS：管理员授权被取消", "\n".join(app.logged))
 
+    def test_configure_usb_sharing_failure_schedules_manual_settings_on_ui_thread(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        queued_ui = []
+        manual_calls = []
+
+        def manual_settings():
+            manual_calls.append("opened")
+
+        app.open_manual_network_settings = manual_settings
+        app._run_background = lambda _message, work: work()
+        app._ui = lambda func, *args: queued_ui.append((func, args))
+        result = SimpleNamespace(ok=False, message="管理员授权被取消")
+
+        with patch("rtsp_tool.gui.messagebox.askyesno", return_value=True), patch(
+            "rtsp_tool.gui.configure_ics", return_value=result
+        ):
+            app.configure_usb_sharing()
+
+        self.assertIn((app.open_manual_network_settings, ()), queued_ui)
+        self.assertEqual(manual_calls, [])
+
+        for func, args in queued_ui:
+            func(*args)
+
+        self.assertEqual(manual_calls, ["opened"])
+
+    def test_configure_usb_sharing_ics_exception_is_logged_by_background(self):
+        app = self.make_app(windows=True, selected_adapters=True)
+        messages = []
+        self.use_sync_background(app, showerror=lambda title, message: messages.append((title, message)))
+
+        with patch("rtsp_tool.gui.messagebox.askyesno", return_value=True), patch(
+            "rtsp_tool.gui.configure_ics", side_effect=RuntimeError("boom")
+        ):
+            app.configure_usb_sharing()
+
+        self.assertIn("错误：boom", app.logged)
+        self.assertEqual(messages, [("操作失败", "boom")])
+        self.assertFalse(app._operation_in_progress)
+        self.assertEqual(app.root.cursor, "")
+
     def test_open_manual_network_settings_logs_steps_and_handles_open_failure(self):
         app = self.make_app(windows=True, selected_adapters=True)
 
@@ -561,10 +619,21 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(app.usb_sharing_status.get(), manual_steps)
         self.assertIn(manual_steps, "\n".join(app.logged))
 
+    def test_open_manual_network_settings_skips_direct_call_on_non_windows(self):
+        app = self.make_app(windows=False, selected_adapters=True)
+
+        with patch("rtsp_tool.gui.open_windows_network_settings") as open_settings:
+            app.open_manual_network_settings()
+
+        self.assertEqual(app.usb_sharing_status.get(), "USB 网络共享自动配置仅适用于 Windows。")
+        self.assertIn("USB 网络共享自动配置仅适用于 Windows。", app.logged)
+        open_settings.assert_not_called()
+
     def test_detect_usb0_ip_updates_rtsp_url(self):
         app = self.make_app(windows=True, selected_adapters=True)
         background_messages = []
         update_calls = []
+        discover_usb0_ip = Mock(return_value="192.168.137.33")
 
         def run_background(message, work):
             background_messages.append(message)
@@ -572,10 +641,11 @@ class GuiUsbSharingTests(unittest.TestCase):
 
         app._run_background = run_background
         app._update_button_states = lambda: update_calls.append("updated")
-        app.adb = SimpleNamespace(discover_usb0_ip=lambda serial: "192.168.137.33")
+        app.adb = SimpleNamespace(discover_usb0_ip=discover_usb0_ip)
 
         app.detect_usb0_ip()
 
+        discover_usb0_ip.assert_called_once_with("abc")
         self.assertEqual(background_messages, ["正在检测 usb0 IP..."])
         self.assertEqual(app.device_ip.get(), "192.168.137.33")
         self.assertEqual(app.rtsp_url.get(), "rtsp://192.168.137.33:8554/ch0")
