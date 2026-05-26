@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -162,6 +162,16 @@ class GuiYoloPackageTests(unittest.TestCase):
             self.assertIn(str(apps_path), "\n".join(app.logged))
             self.assertIn("找到 2 个", "\n".join(app.logged))
 
+    def test_refresh_yolo_packages_uses_windows_path_separator_in_example_path(self):
+        apps_path = PureWindowsPath(r"C:\Users\yuwei\Desktop\ADB_RTSP_Player\yolo_apps")
+        app = self.make_app(apps_path)
+
+        app.refresh_yolo_packages()
+
+        log_text = "\n".join(app.logged)
+        self.assertIn(r"yolo_apps\yoloApp_xxx", log_text)
+        self.assertNotIn("yolo_apps/yoloApp_xxx", log_text)
+
     def test_refresh_yolo_packages_keeps_selection_when_new_distinct_package_is_added(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             apps_path = Path(temp_dir) / "yolo_apps"
@@ -270,6 +280,7 @@ class GuiYoloPackageTests(unittest.TestCase):
 
     def test_update_yolo_package_missing_package_warns(self):
         app, _package, showwarning, showerror, askyesno = self.make_workflow_app(package_selected=False)
+        app.yolo_apps_path = PureWindowsPath(r"C:\Users\yuwei\Desktop\ADB_RTSP_Player\yolo_apps")
         with patch("rtsp_tool.gui.messagebox.showwarning", showwarning), patch(
             "rtsp_tool.gui.messagebox.showerror", showerror
         ), patch("rtsp_tool.gui.messagebox.askyesno", askyesno):
@@ -278,6 +289,8 @@ class GuiYoloPackageTests(unittest.TestCase):
         self.assertEqual(len(app.adb.installs), 0)
         self.assertEqual(self.messages[0][0], "warning")
         self.assertIn("yoloApp_xxx", self.messages[0][2])
+        self.assertIn(r"yolo_apps\yoloApp_xxx", self.messages[0][2])
+        self.assertNotIn("yolo_apps/yoloApp_xxx", self.messages[0][2])
 
     def test_update_yolo_package_install_failure_is_logged_and_shown(self):
         failed = CommandResult(["adb"], 1, "", "push failed")

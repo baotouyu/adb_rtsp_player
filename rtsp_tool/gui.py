@@ -291,8 +291,11 @@ class RTSPToolApp:
         if packages:
             self.log(f"找到 {len(packages)} 个 YOLO 组合包：{self.yolo_apps_path}")
         else:
-            self.log(f"没有找到 YOLO 组合包。请放到 {self.yolo_apps_path}/yoloApp_xxx/")
+            self.log(f"没有找到 YOLO 组合包。请放到 {self._yolo_package_example_path()}")
         self._update_button_states()
+
+    def _yolo_package_example_path(self) -> str:
+        return str(self.yolo_apps_path / "yoloApp_xxx")
 
     def _build_yolo_package_choices(self, packages: list[YoloPackage]) -> dict[str, YoloPackage]:
         display_counts: dict[str, int] = {}
@@ -318,7 +321,7 @@ class RTSPToolApp:
         if not package:
             messagebox.showwarning(
                 "未选择组合包",
-                f"请把组合包放到 {self.yolo_apps_path}/yoloApp_xxx/，然后选择一个模型/App 组合。",
+                f"请把组合包放到 {self._yolo_package_example_path()}，然后选择一个模型/App 组合。",
             )
             return
 
