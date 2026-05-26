@@ -25,6 +25,9 @@ class YoloPackageTests(unittest.TestCase):
         self.assertEqual(package_display_name("yoloApp_苹果"), "苹果")
         self.assertEqual(package_display_name("other"), "other")
 
+    def test_package_display_name_keeps_empty_suffix_package_name(self):
+        self.assertEqual(package_display_name("yoloApp_"), "yoloApp_")
+
     def test_validate_yolo_package_accepts_required_files(self):
         with TemporaryDirectory() as tmpdir:
             package_dir = Path(tmpdir) / "yoloApp_苹果"
