@@ -80,6 +80,10 @@ wlan0     Link encap:Ethernet
             client.stop_service_command("abc123"),
             ["adb", "-s", "abc123", "shell", "pkill sample_smart_camera"],
         )
+        self.assertEqual(
+            client.stop_service_command("abc123", ignore_missing=True),
+            ["adb", "-s", "abc123", "shell", "pkill sample_smart_camera || true"],
+        )
 
     def test_yolo_install_commands_are_exact(self):
         client = ADBClient(adb_path="adb")
@@ -116,13 +120,15 @@ wlan0     Link encap:Ethernet
             return type("Result", (), {"ok": True, "stderr": "", "stdout": ""})()
 
         with patch.object(client, "run", side_effect=fake_run):
-            result = client.install_yolo_package(
-                "abc123",
-                app_path="/local/yoloApp_苹果/sample_smart_camera",
-                model_path="/local/yoloApp_苹果/network_binary.nb",
-            )
+            with patch.object(client, "stop_service", wraps=client.stop_service) as stop_service:
+                result = client.install_yolo_package(
+                    "abc123",
+                    app_path="/local/yoloApp_苹果/sample_smart_camera",
+                    model_path="/local/yoloApp_苹果/network_binary.nb",
+                )
 
         self.assertTrue(result.ok)
+        stop_service.assert_called_once_with("abc123", ignore_missing=True)
         self.assertEqual(
             calls,
             [

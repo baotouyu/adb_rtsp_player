@@ -133,8 +133,11 @@ class ADBClient:
         shell_command = f"cd /tmp && {SERVICE_PATH} {SERVICE_ARGS} >{SERVICE_LOG} 2>&1"
         return build_shell_command(self.adb_path, serial, shell_command)
 
-    def stop_service_command(self, serial: str) -> list[str]:
-        return build_shell_command(self.adb_path, serial, f"pkill {SERVICE_NAME}")
+    def stop_service_command(self, serial: str, ignore_missing: bool = False) -> list[str]:
+        shell_command = f"pkill {SERVICE_NAME}"
+        if ignore_missing:
+            shell_command = f"{shell_command} || true"
+        return build_shell_command(self.adb_path, serial, shell_command)
 
     def prepare_yolo_update_command(self, serial: str) -> list[str]:
         return build_shell_command(self.adb_path, serial, f"rm -rf {YOLO_UPDATE_DIR} && mkdir -p {YOLO_UPDATE_DIR}")
@@ -186,14 +189,13 @@ class ADBClient:
         except OSError as exc:
             return CommandResult(command, 127, "", str(exc))
 
-    def stop_service(self, serial: str) -> CommandResult:
-        result = self.shell(serial, f"pkill {SERVICE_NAME}")
+    def stop_service(self, serial: str, ignore_missing: bool = False) -> CommandResult:
+        result = self.run(self.stop_service_command(serial, ignore_missing=ignore_missing)[1:])
         self.stop_local_service_process(serial)
         return result
 
     def install_yolo_package(self, serial: str, app_path: str, model_path: str) -> CommandResult:
-        last_result = self.run(["-s", serial, "shell", f"pkill {SERVICE_NAME} || true"])
-        self.stop_local_service_process(serial)
+        last_result = self.stop_service(serial, ignore_missing=True)
         if not last_result.ok:
             return last_result
 
