@@ -1,0 +1,89 @@
+"""Windows ICS network adapter selection helpers."""
+
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+import platform
+from typing import Iterable
+
+
+USB_KEYWORDS = (
+    "rndis",
+    "remote ndis",
+    "usb ethernet",
+    "usb ethernet/rndis gadget",
+    "ethernet gadget",
+)
+
+INTERNET_HINTS = ("wi-fi", "wifi", "wlan", "ethernet", "以太网")
+CONNECTED_STATUSES = {"up", "connected"}
+
+
+@dataclass(frozen=True)
+class NetworkAdapter:
+    name: str
+    description: str
+    status: str
+    has_gateway: bool = False
+
+    @property
+    def label(self) -> str:
+        if self.description and self.description != self.name:
+            return f"{self.name} - {self.description}"
+        return self.name
+
+
+def is_windows() -> bool:
+    return platform.system().lower() == "windows"
+
+
+def _adapter_text(adapter: NetworkAdapter) -> str:
+    return f"{adapter.name} {adapter.description}".lower()
+
+
+def is_usb_adapter(adapter: NetworkAdapter) -> bool:
+    text = _adapter_text(adapter)
+    return any(keyword in text for keyword in USB_KEYWORDS) or (
+        "usb" in text and "ethernet" in text
+    )
+
+
+def select_usb_adapters(adapters: Iterable[NetworkAdapter]) -> list[NetworkAdapter]:
+    return [adapter for adapter in adapters if is_usb_adapter(adapter)]
+
+
+def _is_connected(adapter: NetworkAdapter) -> bool:
+    return adapter.status.lower() in CONNECTED_STATUSES
+
+
+def select_internet_adapters(adapters: Iterable[NetworkAdapter]) -> list[NetworkAdapter]:
+    return [
+        adapter
+        for adapter in adapters
+        if _is_connected(adapter) and adapter.has_gateway and not is_usb_adapter(adapter)
+    ]
+
+
+def choose_single_usb_adapter(candidates: list[NetworkAdapter]) -> NetworkAdapter | None:
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def choose_single_internet_adapter(candidates: list[NetworkAdapter]) -> NetworkAdapter | None:
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def adapter_choice_map(adapters: Iterable[NetworkAdapter]) -> dict[str, NetworkAdapter]:
+    adapters = list(adapters)
+    labels = [adapter.label for adapter in adapters]
+    counts = Counter(labels)
+    seen: dict[str, int] = defaultdict(int)
+    choices: dict[str, NetworkAdapter] = {}
+
+    for adapter, label in zip(adapters, labels):
+        if counts[label] > 1:
+            seen[label] += 1
+            label = f"{label} ({seen[label]})"
+        choices[label] = adapter
+
+    return choices
