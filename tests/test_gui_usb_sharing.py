@@ -85,6 +85,16 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(app.manual_network_settings_button.state, "normal")
         self.assertEqual(app.detect_usb0_button.state, "normal")
 
+    def test_unusable_device_disables_usb0_detection_only(self):
+        app = self.make_app(windows=True, selected_adapters=True, usable_device=False)
+
+        app._update_button_states()
+
+        self.assertEqual(app.detect_adapters_button.state, "normal")
+        self.assertEqual(app.configure_usb_sharing_button.state, "normal")
+        self.assertEqual(app.manual_network_settings_button.state, "normal")
+        self.assertEqual(app.detect_usb0_button.state, "disabled")
+
     def test_non_windows_disables_windows_actions_but_keeps_usb0_detection_available(self):
         app = self.make_app(windows=False, selected_adapters=True, usable_device=True)
 
