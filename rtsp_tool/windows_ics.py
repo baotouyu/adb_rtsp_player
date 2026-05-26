@@ -57,11 +57,19 @@ def _is_connected(adapter: NetworkAdapter) -> bool:
     return adapter.status.lower() in CONNECTED_STATUSES
 
 
+def _has_internet_hint(adapter: NetworkAdapter) -> bool:
+    text = _adapter_text(adapter)
+    return any(hint in text for hint in INTERNET_HINTS)
+
+
 def select_internet_adapters(adapters: Iterable[NetworkAdapter]) -> list[NetworkAdapter]:
     return [
         adapter
         for adapter in adapters
-        if _is_connected(adapter) and adapter.has_gateway and not is_usb_adapter(adapter)
+        if _is_connected(adapter)
+        and adapter.has_gateway
+        and not is_usb_adapter(adapter)
+        and _has_internet_hint(adapter)
     ]
 
 
