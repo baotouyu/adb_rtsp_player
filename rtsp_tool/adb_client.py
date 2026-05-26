@@ -48,11 +48,21 @@ def parse_adb_devices(output: str) -> list[ADBDevice]:
 
 
 def _valid_device_ip(ip: str) -> bool:
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        octets = [int(part) for part in parts]
+    except ValueError:
+        return False
+    if any(octet < 0 or octet > 255 for octet in octets):
+        return False
+
     return not (
-        ip.startswith("127.")
-        or ip.startswith("0.")
-        or ip == "255.255.255.255"
-        or ip == "0.0.0.0"
+        octets[0] == 127
+        or octets[0] == 0
+        or octets == [255, 255, 255, 255]
+        or (octets[0] == 169 and octets[1] == 254)
     )
 
 
@@ -81,6 +91,14 @@ def parse_ifconfig_ip(output: str) -> str | None:
             ip = match.group(1)
             if _valid_device_ip(ip):
                 return ip
+    return None
+
+
+def parse_usb0_ip(output: str) -> str | None:
+    for match in re.finditer(r"\binet\s+(?:addr:)?(\d+\.\d+\.\d+\.\d+)\b", output):
+        ip = match.group(1)
+        if _valid_device_ip(ip):
+            return ip
     return None
 
 
@@ -239,6 +257,24 @@ class ADBClient:
 
     def get_ifconfig_output(self, serial: str) -> CommandResult:
         return self.shell(serial, "ifconfig")
+
+    def get_usb0_ip_addr_output(self, serial: str) -> CommandResult:
+        return self.shell(serial, "ip addr show usb0")
+
+    def get_usb0_ifconfig_output(self, serial: str) -> CommandResult:
+        return self.shell(serial, "ifconfig usb0")
+
+    def discover_usb0_ip(self, serial: str) -> str | None:
+        ip_addr_result = self.get_usb0_ip_addr_output(serial)
+        if ip_addr_result.ok:
+            ip = parse_usb0_ip(ip_addr_result.stdout)
+            if ip:
+                return ip
+
+        ifconfig_result = self.get_usb0_ifconfig_output(serial)
+        if ifconfig_result.ok:
+            return parse_usb0_ip(ifconfig_result.stdout)
+        return None
 
     def discover_ip(self, serial: str) -> str | None:
         route_result = self.get_ip_route_output(serial)

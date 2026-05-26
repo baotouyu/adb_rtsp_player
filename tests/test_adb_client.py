@@ -4,6 +4,7 @@ from unittest.mock import patch
 from rtsp_tool.adb_client import (
     ADBClient,
     ADBDevice,
+    CommandResult,
     YOLO_APP_REMOTE_PATH,
     YOLO_INSTALL_TIMEOUT,
     YOLO_MODEL_REMOTE_PATH,
@@ -12,6 +13,7 @@ from rtsp_tool.adb_client import (
     parse_adb_devices,
     parse_ifconfig_ip,
     parse_ip_route_ip,
+    parse_usb0_ip,
 )
 
 
@@ -59,6 +61,32 @@ wlan0     Link encap:Ethernet
 """
 
         self.assertEqual(parse_ifconfig_ip(output), "192.168.2.2")
+
+    def test_parse_usb0_ip_accepts_ip_addr_output(self):
+        output = """
+4: usb0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 1a:2b:3c:4d:5e:6f brd ff:ff:ff:ff:ff:ff
+    inet 192.168.137.22/24 brd 192.168.137.255 scope global usb0
+       valid_lft forever preferred_lft forever
+"""
+
+        self.assertEqual(parse_usb0_ip(output), "192.168.137.22")
+
+    def test_parse_usb0_ip_accepts_ifconfig_output(self):
+        output = """
+usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
+          inet addr:192.168.137.33  Bcast:192.168.137.255  Mask:255.255.255.0
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+"""
+
+        self.assertEqual(parse_usb0_ip(output), "192.168.137.33")
+
+    def test_parse_usb0_ip_rejects_loopback_zero_and_link_local(self):
+        self.assertIsNone(parse_usb0_ip("inet 127.0.0.2/8 scope host lo\n"))
+        self.assertIsNone(parse_usb0_ip("inet 0.1.2.3/24 scope global usb0\n"))
+        self.assertIsNone(parse_usb0_ip("inet 0.0.0.0/24 scope global usb0\n"))
+        self.assertIsNone(parse_usb0_ip("inet 255.255.255.255/32 scope global usb0\n"))
+        self.assertIsNone(parse_usb0_ip("inet 169.254.8.9/16 scope link usb0\n"))
 
     def test_build_shell_command_targets_selected_serial(self):
         self.assertEqual(
@@ -296,6 +324,51 @@ wlan0     Link encap:Ethernet
         self.assertTrue(running)
         self.assertEqual(service_pid.call_count, 2)
         sleep.assert_called_once_with(0.1)
+
+    def test_discover_usb0_ip_uses_ip_addr_then_ifconfig(self):
+        client = ADBClient(adb_path="adb")
+        ip_addr_result = CommandResult(["adb"], 1, "", "Device does not have ip")
+        ifconfig_result = CommandResult(
+            ["adb"],
+            0,
+            "usb0      Link encap:Ethernet\n          inet addr:192.168.137.33  Mask:255.255.255.0\n",
+            "",
+        )
+
+        with patch.object(client, "get_usb0_ip_addr_output", return_value=ip_addr_result) as ip_addr:
+            with patch.object(client, "get_usb0_ifconfig_output", return_value=ifconfig_result) as ifconfig:
+                self.assertEqual(client.discover_usb0_ip("abc123"), "192.168.137.33")
+
+        ip_addr.assert_called_once_with("abc123")
+        ifconfig.assert_called_once_with("abc123")
+
+    def test_discover_usb0_ip_prefers_ip_addr_when_present(self):
+        client = ADBClient(adb_path="adb")
+        ip_addr_result = CommandResult(
+            ["adb"],
+            0,
+            "4: usb0: <UP> mtu 1500\n    inet 192.168.137.22/24 scope global usb0\n",
+            "",
+        )
+
+        with patch.object(client, "get_usb0_ip_addr_output", return_value=ip_addr_result) as ip_addr:
+            with patch.object(client, "get_usb0_ifconfig_output") as ifconfig:
+                self.assertEqual(client.discover_usb0_ip("abc123"), "192.168.137.22")
+
+        ip_addr.assert_called_once_with("abc123")
+        ifconfig.assert_not_called()
+
+    def test_usb0_commands_are_exact(self):
+        client = ADBClient(adb_path="adb")
+        result = CommandResult(["adb"], 0, "", "")
+
+        with patch.object(client, "run", return_value=result) as run:
+            self.assertIs(client.get_usb0_ip_addr_output("abc123"), result)
+        run.assert_called_once_with(["-s", "abc123", "shell", "ip addr show usb0"], timeout=None)
+
+        with patch.object(client, "run", return_value=result) as run:
+            self.assertIs(client.get_usb0_ifconfig_output("abc123"), result)
+        run.assert_called_once_with(["-s", "abc123", "shell", "ifconfig usb0"], timeout=None)
 
 
 if __name__ == "__main__":
