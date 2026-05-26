@@ -31,7 +31,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git init .
+          git remote add origin "https://github.com/$env:GITHUB_REPOSITORY.git"
+          $FetchRef = "+$($env:GITHUB_SHA):refs/remotes/origin/$($env:GITHUB_REF_NAME)"
+          git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $FetchRef
+          git checkout --force --detach $env:GITHUB_SHA
 
       - name: Set up Python
         uses: actions/setup-python@v5
