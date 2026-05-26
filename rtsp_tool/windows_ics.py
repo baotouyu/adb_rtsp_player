@@ -7,7 +7,9 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import platform
+import shutil
 import subprocess
+import tempfile
 from typing import Iterable
 
 
@@ -210,6 +212,39 @@ def load_ics_result(path: Path) -> IcsConfigResult:
         raise RuntimeError("ICS 结果 JSON 格式无效，请重试 ICS 配置。")
 
     return IcsConfigResult(ok=data["ok"], message=data["message"])
+
+
+def configure_ics(public_adapter_name, private_adapter_name, temp_dir=None, runner=subprocess.run) -> IcsConfigResult:
+    owns_temp_dir = temp_dir is None
+    work_dir = Path(tempfile.mkdtemp(prefix="rtsp-ics-")) if owns_temp_dir else Path(temp_dir)
+    script_path = work_dir / "enable-ics.ps1"
+    result_path = work_dir / "ics-result.json"
+
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(
+            build_ics_script(public_adapter_name, private_adapter_name, result_path),
+            encoding="utf-8",
+        )
+
+        try:
+            completed = runner(
+                build_elevated_ics_command(script_path),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as exc:
+            return IcsConfigResult(ok=False, message=f"启动 ICS 配置脚本失败: {exc}")
+
+        if result_path.exists():
+            return load_ics_result(result_path)
+        if completed.returncode != 0:
+            return IcsConfigResult(ok=False, message="管理员授权被取消，或 Windows ICS 配置脚本未完成。")
+        return IcsConfigResult(ok=False, message="Windows ICS 配置脚本没有返回结果。")
+    finally:
+        if owns_temp_dir:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 def open_manual_network_settings(runner=subprocess.run) -> None:

@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from rtsp_tool.windows_ics import (
     build_adapter_discovery_command,
     build_elevated_ics_command,
     build_ics_script,
+    configure_ics,
     load_ics_result,
     NetworkAdapter,
     open_manual_network_settings,
@@ -22,6 +24,28 @@ from rtsp_tool.windows_ics import (
 
 
 class WindowsIcsTests(unittest.TestCase):
+    def _extract_script_path_from_elevated_command(self, command):
+        command_text = " ".join(command)
+        marker = "'-File', "
+        start = command_text.index(marker) + len(marker)
+        self.assertEqual(command_text[start], "'")
+        index = start + 1
+        chars = []
+        while index < len(command_text):
+            char = command_text[index]
+            if char == "'" and index + 1 < len(command_text) and command_text[index + 1] == "'":
+                chars.append("'")
+                index += 2
+                continue
+            if char == "'":
+                break
+            chars.append(char)
+            index += 1
+        script_argument = "".join(chars)
+        if script_argument.startswith('"') and script_argument.endswith('"'):
+            script_argument = script_argument[1:-1]
+        return Path(script_argument)
+
     def test_network_adapter_label_handles_empty_same_and_different_descriptions(self):
         empty_description = NetworkAdapter(name="Ethernet", description="", status="Up")
         same_description = NetworkAdapter(name="Wi-Fi", description="Wi-Fi", status="Up")
@@ -358,6 +382,100 @@ class WindowsIcsTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "ICS 结果 JSON 格式无效"):
                 load_ics_result(result_path)
+
+    def test_configure_ics_writes_script_runs_elevated_and_reads_result(self):
+        calls = []
+
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        with TemporaryDirectory() as tmpdir:
+            temp_path = Path(tmpdir)
+
+            def runner(command, **kwargs):
+                calls.append((command, kwargs))
+                command_text = " ".join(command)
+                self.assertIn("Start-Process", command_text)
+                script_path = self._extract_script_path_from_elevated_command(command)
+                self.assertEqual(script_path, temp_path / "enable-ics.ps1")
+                result_path = script_path.with_name("ics-result.json")
+                result_path.write_text(json.dumps({"ok": True, "message": "ICS done"}), encoding="utf-8")
+                return Completed()
+
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=temp_path, runner=runner)
+
+            script_path = temp_path / "enable-ics.ps1"
+            self.assertTrue(result.ok)
+            self.assertEqual(result.message, "ICS done")
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1], {"text": True, "capture_output": True, "check": False})
+            self.assertTrue(script_path.exists())
+            script = script_path.read_text(encoding="utf-8")
+            self.assertIn("Wi-Fi", script)
+            self.assertIn("USB RNDIS", script)
+
+    def test_configure_ics_returns_failure_when_user_cancels_uac_or_no_result_file(self):
+        class Completed:
+            returncode = 1
+            stdout = ""
+            stderr = "cancelled"
+
+        with TemporaryDirectory() as tmpdir:
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=Path(tmpdir), runner=lambda command, **kwargs: Completed())
+
+        self.assertFalse(result.ok)
+        self.assertIn("管理员", result.message)
+
+    def test_configure_ics_returns_failure_when_script_returns_without_result(self):
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        with TemporaryDirectory() as tmpdir:
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=Path(tmpdir), runner=lambda command, **kwargs: Completed())
+
+        self.assertFalse(result.ok)
+        self.assertIn("没有返回结果", result.message)
+
+    def test_configure_ics_returns_failure_when_runner_oserror(self):
+        def runner(command, **kwargs):
+            raise OSError("powershell missing")
+
+        with TemporaryDirectory() as tmpdir:
+            result = configure_ics("Wi-Fi", "USB RNDIS", temp_dir=Path(tmpdir), runner=runner)
+
+        self.assertFalse(result.ok)
+        self.assertIn("启动 ICS 配置脚本失败", result.message)
+
+    def test_configure_ics_removes_owned_temp_directory(self):
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        with TemporaryDirectory() as parent:
+            owned_dir = Path(parent) / "owned-ics-temp"
+
+            def fake_mkdtemp(prefix=None):
+                owned_dir.mkdir()
+                return str(owned_dir)
+
+            def runner(command, **kwargs):
+                script_path = self._extract_script_path_from_elevated_command(command)
+                script_path.with_name("ics-result.json").write_text(
+                    json.dumps({"ok": True, "message": "done"}),
+                    encoding="utf-8",
+                )
+                return Completed()
+
+            with patch("rtsp_tool.windows_ics.tempfile.mkdtemp", side_effect=fake_mkdtemp):
+                result = configure_ics("Wi-Fi", "USB RNDIS", runner=runner)
+
+            self.assertTrue(result.ok)
+            self.assertFalse(owned_dir.exists())
 
     def test_open_manual_network_settings_launches_ncpa_control_panel(self):
         calls = []
