@@ -34,18 +34,34 @@ class PlayerTests(unittest.TestCase):
     def test_build_rtsp_url_uses_default_port_and_channel(self):
         self.assertEqual(build_rtsp_url("192.168.2.2"), "rtsp://192.168.2.2:8554/ch0")
 
-    def test_build_ffplay_command_uses_low_latency_tcp_options(self):
+    def test_build_ffplay_command_uses_aggressive_low_latency_tcp_options(self):
         self.assertEqual(
             build_ffplay_command("/usr/local/bin/ffplay", "rtsp://192.168.2.2:8554/ch0"),
             [
                 "/usr/local/bin/ffplay",
                 "-rtsp_transport",
                 "tcp",
+                "-allowed_media_types",
+                "video",
+                "-an",
                 "-fflags",
-                "nobuffer",
+                "nobuffer+discardcorrupt",
                 "-flags",
                 "low_delay",
+                "-probesize",
+                "32",
+                "-analyzeduration",
+                "0",
+                "-max_delay",
+                "0",
+                "-reorder_queue_size",
+                "0",
+                "-rtbufsize",
+                "262144",
+                "-sync",
+                "ext",
                 "-framedrop",
+                "-noinfbuf",
                 "rtsp://192.168.2.2:8554/ch0",
             ],
         )
