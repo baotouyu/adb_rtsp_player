@@ -6,6 +6,7 @@ from rtsp_tool.adb_client import (
     ADBDevice,
     CommandResult,
     YOLO_APP_REMOTE_PATH,
+    YOLO_CONF_REMOTE_PATH,
     YOLO_INSTALL_TIMEOUT,
     YOLO_MODEL_REMOTE_PATH,
     YOLO_UPDATE_DIR,
@@ -18,12 +19,18 @@ from rtsp_tool.adb_client import (
 
 
 SAFE_YOLO_INSTALL_COMMAND = (
-    "app=/usr/bin/sample_smart_camera; model=/network_binary.nb; dir=/tmp/yolo_app_update; "
+    "app=/usr/bin/sample_smart_camera; model=/network_binary.nb; "
+    "conf=/smart_camera.conf; dir=/tmp/yolo_app_update; "
     "backup_app=$dir/sample_smart_camera.previous; backup_model=$dir/network_binary.nb.previous; "
+    "backup_conf=$dir/smart_camera.conf.previous; "
+    "cp -f $conf $backup_conf 2>/dev/null || true; "
     "if cp $app $backup_app && cp $model $backup_model && "
-    "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && sync; "
+    "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && "
+    "{ if [ -f $dir/smart_camera.conf ]; then cp $dir/smart_camera.conf $conf; else rm -f $conf; fi; } && sync; "
     "then rm -rf $dir; "
-    "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi"
+    "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; "
+    "{ if [ -f $backup_conf ]; then cp $backup_conf $conf; else rm -f $conf; fi; }; "
+    "sync; rm -rf $dir; false; fi"
 )
 
 
@@ -169,6 +176,7 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
         )
         self.assertEqual(YOLO_APP_REMOTE_PATH, "/usr/bin/sample_smart_camera")
         self.assertEqual(YOLO_MODEL_REMOTE_PATH, "/network_binary.nb")
+        self.assertEqual(YOLO_CONF_REMOTE_PATH, "/smart_camera.conf")
 
     def test_yolo_install_command_rolls_back_pair_on_install_failure(self):
         client = ADBClient(adb_path="adb")
@@ -176,12 +184,24 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
 
         self.assertIn("backup_app=$dir/sample_smart_camera.previous", shell_command)
         self.assertIn("backup_model=$dir/network_binary.nb.previous", shell_command)
+        self.assertIn("backup_conf=$dir/smart_camera.conf.previous", shell_command)
         self.assertLess(
             shell_command.index("cp $app $backup_app"),
             shell_command.index("cp $dir/sample_smart_camera $app"),
         )
         self.assertIn(
-            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi",
+            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; "
+            "{ if [ -f $backup_conf ]; then cp $backup_conf $conf; else rm -f $conf; fi; }; "
+            "sync; rm -rf $dir; false; fi",
+            shell_command,
+        )
+
+    def test_yolo_install_command_applies_or_removes_conf(self):
+        client = ADBClient(adb_path="adb")
+        shell_command = client.install_yolo_update_command("abc123")[-1]
+
+        self.assertIn(
+            "{ if [ -f $dir/smart_camera.conf ]; then cp $dir/smart_camera.conf $conf; else rm -f $conf; fi; }",
             shell_command,
         )
 
@@ -210,6 +230,43 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
                 ((["-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"]), None),
                 ((["-s", "abc123", "push", "/local/yoloApp_苹果/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"]), YOLO_INSTALL_TIMEOUT),
                 ((["-s", "abc123", "push", "/local/yoloApp_苹果/network_binary.nb", "/tmp/yolo_app_update/network_binary.nb"]), YOLO_INSTALL_TIMEOUT),
+                ((
+                    [
+                        "-s",
+                        "abc123",
+                        "shell",
+                        SAFE_YOLO_INSTALL_COMMAND,
+                    ]
+                ), YOLO_INSTALL_TIMEOUT),
+            ],
+        )
+
+    def test_install_yolo_package_pushes_conf_when_provided(self):
+        client = ADBClient(adb_path="adb")
+        calls: list[tuple[list[str], float | None]] = []
+
+        def fake_run(args, timeout=None):
+            calls.append((list(args), timeout))
+            return type("Result", (), {"ok": True, "stderr": "", "stdout": ""})()
+
+        with patch.object(client, "run", side_effect=fake_run):
+            with patch.object(client, "stop_service", wraps=client.stop_service):
+                result = client.install_yolo_package(
+                    "abc123",
+                    app_path="/local/yoloApp_苹果/sample_smart_camera",
+                    model_path="/local/yoloApp_苹果/network_binary.nb",
+                    conf_path="/local/yoloApp_苹果/smart_camera.conf",
+                )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(
+            calls,
+            [
+                ((["-s", "abc123", "shell", "pkill sample_smart_camera || true"]), None),
+                ((["-s", "abc123", "shell", "rm -rf /tmp/yolo_app_update && mkdir -p /tmp/yolo_app_update"]), None),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/sample_smart_camera", "/tmp/yolo_app_update/sample_smart_camera"]), YOLO_INSTALL_TIMEOUT),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/network_binary.nb", "/tmp/yolo_app_update/network_binary.nb"]), YOLO_INSTALL_TIMEOUT),
+                ((["-s", "abc123", "push", "/local/yoloApp_苹果/smart_camera.conf", "/tmp/yolo_app_update/smart_camera.conf"]), YOLO_INSTALL_TIMEOUT),
                 ((
                     [
                         "-s",

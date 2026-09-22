@@ -14,6 +14,7 @@ SERVICE_LOG = "/tmp/sample_smart_camera.log"
 YOLO_UPDATE_DIR = "/tmp/yolo_app_update"
 YOLO_APP_REMOTE_PATH = SERVICE_PATH
 YOLO_MODEL_REMOTE_PATH = "/network_binary.nb"
+YOLO_CONF_REMOTE_PATH = "/smart_camera.conf"
 YOLO_INSTALL_TIMEOUT = 120.0
 
 
@@ -174,12 +175,18 @@ class ADBClient:
 
     def install_yolo_update_command(self, serial: str) -> list[str]:
         shell_command = (
-            f"app={YOLO_APP_REMOTE_PATH}; model={YOLO_MODEL_REMOTE_PATH}; dir={YOLO_UPDATE_DIR}; "
+            f"app={YOLO_APP_REMOTE_PATH}; model={YOLO_MODEL_REMOTE_PATH}; "
+            f"conf={YOLO_CONF_REMOTE_PATH}; dir={YOLO_UPDATE_DIR}; "
             "backup_app=$dir/sample_smart_camera.previous; backup_model=$dir/network_binary.nb.previous; "
+            "backup_conf=$dir/smart_camera.conf.previous; "
+            "cp -f $conf $backup_conf 2>/dev/null || true; "
             "if cp $app $backup_app && cp $model $backup_model && "
-            "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && sync; "
+            "cp $dir/sample_smart_camera $app && cp $dir/network_binary.nb $model && chmod +x $app && "
+            "{ if [ -f $dir/smart_camera.conf ]; then cp $dir/smart_camera.conf $conf; else rm -f $conf; fi; } && sync; "
             "then rm -rf $dir; "
-            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; sync; rm -rf $dir; false; fi"
+            "else cp $backup_app $app; cp $backup_model $model; chmod +x $app; "
+            "{ if [ -f $backup_conf ]; then cp $backup_conf $conf; else rm -f $conf; fi; }; "
+            "sync; rm -rf $dir; false; fi"
         )
         return build_shell_command(self.adb_path, serial, shell_command)
 
@@ -225,7 +232,13 @@ class ADBClient:
         self.stop_local_service_process(serial)
         return result
 
-    def install_yolo_package(self, serial: str, app_path: str, model_path: str) -> CommandResult:
+    def install_yolo_package(
+        self,
+        serial: str,
+        app_path: str,
+        model_path: str,
+        conf_path: str | None = None,
+    ) -> CommandResult:
         last_result = self.stop_service(serial, ignore_missing=True)
         if not last_result.ok:
             return last_result
@@ -234,8 +247,12 @@ class ADBClient:
             (self.prepare_yolo_update_command(serial)[1:], None),
             (self.push_yolo_file_command(serial, app_path, f"{YOLO_UPDATE_DIR}/sample_smart_camera")[1:], YOLO_INSTALL_TIMEOUT),
             (self.push_yolo_file_command(serial, model_path, f"{YOLO_UPDATE_DIR}/network_binary.nb")[1:], YOLO_INSTALL_TIMEOUT),
-            (self.install_yolo_update_command(serial)[1:], YOLO_INSTALL_TIMEOUT),
         ]
+        if conf_path:
+            steps.append(
+                (self.push_yolo_file_command(serial, conf_path, f"{YOLO_UPDATE_DIR}/smart_camera.conf")[1:], YOLO_INSTALL_TIMEOUT)
+            )
+        steps.append((self.install_yolo_update_command(serial)[1:], YOLO_INSTALL_TIMEOUT))
         for step, timeout in steps:
             last_result = self.run(step, timeout=timeout)
             if not last_result.ok:

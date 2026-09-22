@@ -59,8 +59,8 @@ class FakeAdb:
         self.result = result or CommandResult(["adb"], 0, "ok", "")
         self.installs = []
 
-    def install_yolo_package(self, serial, app_path, model_path):
-        self.installs.append((serial, app_path, model_path))
+    def install_yolo_package(self, serial, app_path, model_path, conf_path=None):
+        self.installs.append((serial, app_path, model_path, conf_path))
         return self.result
 
 
@@ -118,9 +118,16 @@ class GuiYoloPackageTests(unittest.TestCase):
         (package_dir / "network_binary.nb").write_text("model", encoding="utf-8")
         return package_dir
 
-    def package(self, name="yoloApp_pkg", display_name="pkg"):
+    def package(self, name="yoloApp_pkg", display_name="pkg", conf=False):
         path = Path("/tmp") / name
-        return YoloPackage(name, display_name, path, path / "sample_smart_camera", path / "network_binary.nb")
+        return YoloPackage(
+            name,
+            display_name,
+            path,
+            path / "sample_smart_camera",
+            path / "network_binary.nb",
+            conf_path=(path / "smart_camera.conf") if conf else None,
+        )
 
     def make_workflow_app(
         self,
@@ -129,6 +136,7 @@ class GuiYoloPackageTests(unittest.TestCase):
         install_result=None,
         start_after_update=False,
         ai_enabled=False,
+        conf=False,
     ):
         app = object.__new__(RTSPToolApp)
         app.root = FakeRoot()
@@ -139,7 +147,7 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.selected_serial = FakeVar("abc")
         app.rtsp_url = FakeVar("")
         app.selected_yolo_package = FakeVar("pkg" if package_selected else "missing")
-        package = self.package()
+        package = self.package(conf=conf)
         app.yolo_packages = {"pkg": package} if package_selected else {}
         app.yolo_apps_path = Path("/tmp/yolo_apps")
         app.start_after_update = FakeVar(start_after_update)
@@ -234,6 +242,29 @@ class GuiYoloPackageTests(unittest.TestCase):
         self.assertEqual(set(choices), {"camera (yoloApp_one)", "camera (yoloApp_two)"})
         self.assertIs(choices["camera (yoloApp_one)"], first)
         self.assertIs(choices["camera (yoloApp_two)"], second)
+
+    def test_yolo_package_choices_marks_packages_with_conf(self):
+        app = self.make_app(Path("/tmp/yolo_apps"))
+        with_conf = self.package("yoloApp_苹果", "苹果", conf=True)
+        without_conf = self.package("yoloApp_香蕉", "香蕉")
+
+        choices = app._build_yolo_package_choices([with_conf, without_conf])
+
+        self.assertEqual(set(choices), {"苹果（含配置）", "香蕉"})
+        self.assertIs(choices["苹果（含配置）"], with_conf)
+
+    def test_yolo_package_choices_keeps_conf_marker_for_duplicate_display_names(self):
+        app = self.make_app(Path("/tmp/yolo_apps"))
+        first = self.package("yoloApp_one", "camera", conf=True)
+        second = self.package("yoloApp_two", "camera")
+
+        choices = app._build_yolo_package_choices([first, second])
+
+        self.assertEqual(
+            set(choices),
+            {"camera (yoloApp_one)（含配置）", "camera (yoloApp_two)"},
+        )
+        self.assertIs(choices["camera (yoloApp_one)（含配置）"], first)
 
     def make_button_state_app(self):
         app = object.__new__(RTSPToolApp)
@@ -353,9 +384,23 @@ class GuiYoloPackageTests(unittest.TestCase):
         ), patch("rtsp_tool.gui.messagebox.askyesno", askyesno):
             app.update_yolo_package()
 
-        self.assertEqual(app.adb.installs, [("abc", str(package.app_path), str(package.model_path))])
+        self.assertEqual(app.adb.installs, [("abc", str(package.app_path), str(package.model_path), None)])
         self.assertEqual(app.service_status.get(), state_text("stopped"))
         self.assertIn("已更新 YOLO 组合包：pkg", app.logged)
+        self.assertIn("已清除板端旧的类别配置", "\n".join(app.logged))
+
+    def test_update_yolo_package_passes_conf_when_package_has_one(self):
+        app, package, showwarning, showerror, askyesno = self.make_workflow_app(conf=True)
+        with patch("rtsp_tool.gui.messagebox.showwarning", showwarning), patch(
+            "rtsp_tool.gui.messagebox.showerror", showerror
+        ), patch("rtsp_tool.gui.messagebox.askyesno", askyesno):
+            app.update_yolo_package()
+
+        self.assertEqual(
+            app.adb.installs,
+            [("abc", str(package.app_path), str(package.model_path), str(package.conf_path))],
+        )
+        self.assertIn("已同步类别配置", "\n".join(app.logged))
 
     def test_update_yolo_package_start_after_update_starts_playback_and_logs_command(self):
         app, _package, showwarning, showerror, askyesno = self.make_workflow_app(start_after_update=True)

@@ -7,6 +7,7 @@ from pathlib import Path
 PACKAGE_PREFIX = "yoloApp_"
 REQUIRED_APP_FILENAME = "sample_smart_camera"
 REQUIRED_MODEL_FILENAME = "network_binary.nb"
+CONF_FILENAME = "smart_camera.conf"
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,11 @@ class YoloPackage:
     path: Path
     app_path: Path
     model_path: Path
+    conf_path: Path | None = None
+
+    @property
+    def has_conf(self) -> bool:
+        return self.conf_path is not None
 
 
 def yolo_apps_dir(app_dir: Path | str) -> Path:
@@ -42,12 +48,14 @@ def validate_yolo_package(package_dir: Path | str) -> YoloPackage:
             missing.append(filename)
     if missing:
         raise ValueError(f"{path.name} 缺少必需文件：{', '.join(missing)}")
+    conf_path = path / CONF_FILENAME
     return YoloPackage(
         name=path.name,
         display_name=package_display_name(path.name),
         path=path,
         app_path=app_path,
         model_path=model_path,
+        conf_path=conf_path if conf_path.is_file() else None,
     )
 
 

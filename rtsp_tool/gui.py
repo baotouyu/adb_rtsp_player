@@ -557,8 +557,12 @@ class RTSPToolApp:
         choices: dict[str, YoloPackage] = {}
         for package in packages:
             label = package.display_name
-            if display_counts[label] > 1 or label in choices:
+            if package.conf_path is not None:
+                label = f"{label}（含配置）"
+            if display_counts[package.display_name] > 1 or label in choices:
                 label = f"{package.display_name} ({package.name})"
+                if package.conf_path is not None:
+                    label = f"{label}（含配置）"
             choices[label] = package
         return choices
 
@@ -579,7 +583,8 @@ class RTSPToolApp:
 
         confirmed = messagebox.askyesno(
             "确认更新组合包",
-            "这会覆盖板端 /usr/bin/sample_smart_camera 和 /network_binary.nb。\n"
+            "这会覆盖板端 /usr/bin/sample_smart_camera、/network_binary.nb 和 /smart_camera.conf。\n"
+            "组合包里没有 smart_camera.conf 时会删掉板端旧的，避免类别映射和模型对不上。\n"
             f"确定更新为 {package.display_name} 吗？",
         )
         if not confirmed:
@@ -587,15 +592,25 @@ class RTSPToolApp:
 
         start_after_update = self.start_after_update.get()
         ai_enabled = self.ai_stream_enabled.get()
+        conf_path = str(package.conf_path) if package.conf_path else None
 
         def work() -> None:
             self._ui(self.log, f"正在更新 YOLO 组合包 {package.display_name} 到设备 {device.serial}...")
-            result = self.adb.install_yolo_package(device.serial, str(package.app_path), str(package.model_path))
+            result = self.adb.install_yolo_package(
+                device.serial,
+                str(package.app_path),
+                str(package.model_path),
+                conf_path=conf_path,
+            )
             if not result.ok:
                 detail = result.stderr.strip() or result.stdout.strip() or "组合包更新命令返回非 0 状态。"
                 raise RuntimeError(detail)
 
             self._ui(self.log, f"已更新 YOLO 组合包：{package.display_name}")
+            if conf_path:
+                self._ui(self.log, f"已同步类别配置：{conf_path} -> /smart_camera.conf")
+            else:
+                self._ui(self.log, "组合包未带 smart_camera.conf，已清除板端旧的类别配置")
             self._ui(self.service_status.set, state_text("stopped"))
             if start_after_update:
                 url = self._inspect_device(device.serial, start_if_needed=True, ai_enabled=ai_enabled)

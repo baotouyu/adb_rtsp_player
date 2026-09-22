@@ -96,14 +96,27 @@ yolo_apps/
   yoloApp_苹果/
     sample_smart_camera
     network_binary.nb
+    smart_camera.conf     # 可选：类别名/串口映射配置（配合支持配置的 app）
 ```
 
 使用约定：
 
 - 文件夹名使用 `yoloApp_xxx`，其中 `xxx` 用来描述检测目标，例如 `yoloApp_苹果`。
 - `sample_smart_camera` 和 `network_binary.nb` 是一对 app/model，应放在同一个 `yoloApp_xxx` 文件夹内，并保持名称和路径匹配。
-- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera` 和 `/network_binary.nb`；工具只会在更新过程中做临时回滚备份，不会为用户长期保留旧文件。
-- 板端需要允许 ADB 写入 `/usr/bin/sample_smart_camera` 和 `/network_binary.nb`。如果 rootfs 只读、权限不足或需要 remount，请先在板端处理好。
+- `smart_camera.conf` 是**可选**的文本配置，用来告诉板端 app：模型类别名、模型 id 到面板串口类别的映射，以及可选的 `score_thresh` / `nms_thresh` / `anchors`。换模型（改类别数/类别名/阈值）只需要改这个文本，app 二进制不用重新编译。格式示例：
+
+  ```text
+  # class <模型id>|<显示名>|<串口类别 0x00~0x06，写 - 表示不上报>
+  class 0|大土豆|0x01
+  class 1|小土豆|0x01
+  score_thresh=0.50
+  nms_thresh=0.45
+  # anchors=10,13,16,30,33,23,30,61,62,45,59,119,116,90,156,198,373,326
+  ```
+
+  注意：只有**支持文本配置的 `sample_smart_camera`**（2026-09 之后的构建）才会读取它；旧 app 会忽略该文件。
+- 点击“更新到板端”会先停止正在运行的 `sample_smart_camera`，再覆盖板端文件：`/usr/bin/sample_smart_camera`、`/network_binary.nb` 和 `/smart_camera.conf`；组合包里没有 `smart_camera.conf` 时会删掉板端旧的，避免类别映射和模型对不上。工具只会在更新过程中做临时回滚备份，不会为用户长期保留旧文件。
+- 板端需要允许 ADB 写入 `/usr/bin/sample_smart_camera`、`/network_binary.nb` 和 `/smart_camera.conf`。如果 rootfs 只读、权限不足或需要 remount，请先在板端处理好。
 - 如果勾选“更新后启动推流”，更新完成后会自动重新启动板端推流服务，并使用当前“启用 AI 检测”勾选框对应的启动模式；不勾选时只完成文件更新，板端推流服务会保持停止状态。
 - `yolo_apps/` 已加入 `.gitignore`，默认不会被 git 跟踪/提交，也不会打进主 Windows 发布包；发布或交付时让用户自行把该目录放到 exe/应用文件夹内即可。
 

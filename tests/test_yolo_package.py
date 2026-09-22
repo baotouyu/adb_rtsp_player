@@ -4,6 +4,7 @@ from unittest.mock import patch
 import unittest
 
 from rtsp_tool.yolo_package import (
+    CONF_FILENAME,
     REQUIRED_APP_FILENAME,
     REQUIRED_MODEL_FILENAME,
     YoloPackage,
@@ -60,6 +61,29 @@ class YoloPackageTests(unittest.TestCase):
             str(raised.exception),
             "yoloApp_苹果 缺少必需文件：sample_smart_camera, network_binary.nb",
         )
+
+    def test_validate_yolo_package_without_conf_has_no_conf_path(self):
+        with TemporaryDirectory() as tmpdir:
+            package_dir = Path(tmpdir) / "yoloApp_苹果"
+            self._write(package_dir / REQUIRED_APP_FILENAME)
+            self._write(package_dir / REQUIRED_MODEL_FILENAME)
+
+            package = validate_yolo_package(package_dir)
+
+        self.assertIsNone(package.conf_path)
+        self.assertFalse(package.has_conf)
+
+    def test_validate_yolo_package_detects_optional_conf(self):
+        with TemporaryDirectory() as tmpdir:
+            package_dir = Path(tmpdir) / "yoloApp_苹果"
+            self._write(package_dir / REQUIRED_APP_FILENAME)
+            self._write(package_dir / REQUIRED_MODEL_FILENAME)
+            self._write(package_dir / CONF_FILENAME, "class 0|苹果|-\n")
+
+            package = validate_yolo_package(package_dir)
+
+        self.assertEqual(package.conf_path, package_dir / CONF_FILENAME)
+        self.assertTrue(package.has_conf)
 
     def test_scan_yolo_packages_returns_only_valid_yolo_app_directories_sorted(self):
         with TemporaryDirectory() as tmpdir:
