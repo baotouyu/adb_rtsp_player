@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 import tkinter as tk
@@ -11,7 +13,6 @@ from typing import Callable, TypeVar
 
 from .adb_client import ADBClient, ADBDevice, SERVICE_LOG, SERVICE_NAME
 from .dependencies import DependencyStatus, check_dependencies, get_app_dir
-from .embed import EmbedController, embed_window_title
 from .i18n import TEXT, device_state_text, state_text
 from .player import PlayerController, build_rtsp_url
 from .recorder import RecorderController
@@ -75,8 +76,8 @@ class RTSPToolApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(TEXT["app_title"])
-        self.root.geometry("980x1050")
-        self.root.minsize(800, 900)
+        self.root.geometry("1040x760")
+        self.root.minsize(880, 640)
 
         self.dependencies = check_dependencies()
         adb_path = self.dependencies["adb"].path or "adb"
@@ -85,7 +86,6 @@ class RTSPToolApp:
         self.adb = ADBClient(adb_path=adb_path)
         self.player = PlayerController(ffplay_path=ffplay_path)
         self.recorder = RecorderController(ffmpeg_path=ffmpeg_path)
-        self.embed = EmbedController()
         self.recordings_dir = Path(get_app_dir()) / "recordings"
 
         self.devices: dict[str, ADBDevice] = {}
@@ -125,7 +125,7 @@ class RTSPToolApp:
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(7, weight=1)
+        self.root.rowconfigure(6, weight=1)
 
         dep_frame = ttk.LabelFrame(self.root, text=TEXT["dependencies"])
         dep_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
@@ -257,7 +257,7 @@ class RTSPToolApp:
 
         controls = ttk.LabelFrame(self.root, text=TEXT["controls"])
         controls.grid(row=5, column=0, sticky="ew", padx=12, pady=4)
-        for col in range(7):
+        for col in range(8):
             controls.columnconfigure(col, weight=1)
         self.start_service_button = ttk.Button(
             controls, text=TEXT["start_board_stream"], command=self.start_board_service
@@ -278,6 +278,9 @@ class RTSPToolApp:
             controls, text=TEXT["stop_recording"], command=self.stop_recording
         )
         self.copy_button = ttk.Button(controls, text=TEXT["copy_rtsp_url"], command=self.copy_rtsp_url)
+        self.open_recordings_button = ttk.Button(
+            controls, text=TEXT["open_recordings"], command=self.open_recordings
+        )
         self.start_service_button.grid(row=0, column=0, sticky="ew", padx=6, pady=4)
         self.stop_service_button.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
         self.start_playback_button.grid(row=0, column=2, sticky="ew", padx=6, pady=4)
@@ -285,22 +288,10 @@ class RTSPToolApp:
         self.start_recording_button.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
         self.stop_recording_button.grid(row=0, column=5, sticky="ew", padx=6, pady=4)
         self.copy_button.grid(row=0, column=6, sticky="ew", padx=6, pady=4)
-
-        video_frame = ttk.LabelFrame(self.root, text=TEXT["video"])
-        video_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=4)
-        video_frame.columnconfigure(0, weight=1)
-        video_frame.rowconfigure(0, weight=1)
-        self.video_host = tk.Frame(video_frame, bg="#000000", height=360)
-        self.video_host.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=4)
-        self.video_host.grid_propagate(False)
-        self.video_placeholder = ttk.Label(
-            self.video_host, text=TEXT["not_playing"], foreground="gray", background="#000000"
-        )
-        self.video_placeholder.place(relx=0.5, rely=0.5, anchor="center")
-        self.video_host.bind("<Configure>", self._on_video_host_configure)
+        self.open_recordings_button.grid(row=0, column=7, sticky="ew", padx=6, pady=4)
 
         log_frame = ttk.LabelFrame(self.root, text=TEXT["console"])
-        log_frame.grid(row=7, column=0, sticky="nsew", padx=12, pady=(4, 6))
+        log_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=4)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, height=8, wrap="word", state="disabled")
@@ -310,7 +301,7 @@ class RTSPToolApp:
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         status_bar = ttk.Label(self.root, textvariable=self.status_text, anchor="w")
-        status_bar.grid(row=8, column=0, sticky="ew", padx=12, pady=(0, 8))
+        status_bar.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     def _add_compact_field(
         self, parent: ttk.Frame, row: int, column: int, label: str, variable: tk.StringVar
@@ -319,14 +310,6 @@ class RTSPToolApp:
         ttk.Label(parent, textvariable=variable).grid(
             row=row, column=column + 1, sticky="ew", padx=10, pady=2
         )
-
-    def _on_video_host_configure(self, event: object | None = None) -> None:
-        if event is None or not hasattr(self, "embed"):
-            return
-        width = getattr(event, "width", 0)
-        height = getattr(event, "height", 0)
-        if width and height:
-            self.embed.resize(width, height)
 
     def _render_dependency_status(self) -> None:
         for name, status in self.dependencies.items():
@@ -839,14 +822,7 @@ class RTSPToolApp:
                 self._ui(self.log, "已在播放该地址，无需重复启动。")
                 self._ui(self._update_button_states)
                 return
-            title = embed_window_title()
-            width = self.video_host.winfo_width()
-            height = self.video_host.winfo_height()
-            if width <= 1 or height <= 1:
-                width, height = 640, 360
-
-            self._ui(self._hide_video_placeholder)
-            command = self.player.start(url, window_title=title, width=width, height=height)
+            command = self.player.start(url)
             self._ui(self.command, " ".join(command))
             self._ui(self.log, "已启动 ffplay：" + " ".join(command))
 
@@ -856,24 +832,9 @@ class RTSPToolApp:
                     target=lambda: (process.wait(), self._ui(self._on_ffplay_exit)), daemon=True
                 )
                 thread.start()
-
-            if self.embed.host_is_hwnd():
-                self.embed.attach_async(
-                    self.video_host.winfo_id(),
-                    title,
-                    width,
-                    height,
-                    on_failed=lambda: self._ui(self.log, "内嵌播放窗口关联失败，视频将显示在独立窗口中。"),
-                )
-            else:
-                self._ui(self.log, "非 Windows：视频将显示在独立 ffplay 窗口中。")
             self._ui(self._update_button_states)
 
         self._run_background("正在开始播放...", work)
-
-    def _hide_video_placeholder(self) -> None:
-        if hasattr(self, "video_placeholder"):
-            self.video_placeholder.place_forget()
 
     def stop_playback(self) -> None:
         if self.recorder.is_recording():
@@ -883,7 +844,6 @@ class RTSPToolApp:
             self.recording_status.set(state_text("stopped"))
         self.player.stop()
         self.command("终止 ffplay 进程")
-        self._reset_video_placeholder()
         self.log("已停止 ffplay 播放。")
         self._update_button_states()
 
@@ -925,18 +885,18 @@ class RTSPToolApp:
         self.recording_status.set(state_text("stopped"))
         self._update_button_states()
 
-    def _reset_video_placeholder(self) -> None:
-        self.embed.detach()
-        if hasattr(self, "video_placeholder") and hasattr(self, "video_host"):
-            self.video_placeholder.place(relx=0.5, rely=0.5, anchor="center")
+    def open_recordings(self) -> None:
+        self.recordings_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(self.recordings_dir)  # type: ignore[attr-defined]
+            return
+        subprocess.Popen(["xdg-open", str(self.recordings_dir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _on_ffplay_exit(self) -> None:
-        self._reset_video_placeholder()
         self.log("ffplay 已退出。")
         self._update_button_states()
 
     def on_close(self) -> None:
-        self.embed.detach()
         if self.recorder.is_recording():
             path = self.recorder.stop()
             if path is not None:

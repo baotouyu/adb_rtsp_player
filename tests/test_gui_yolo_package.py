@@ -495,13 +495,6 @@ class GuiYoloPackageTests(unittest.TestCase):
         app._update_button_states = lambda: None
         app.player = FakePlayer()
         app.recorder = SimpleNamespace(is_recording=lambda: False)
-        app.video_host = SimpleNamespace(
-            winfo_width=lambda: 640,
-            winfo_height=lambda: 360,
-            winfo_id=lambda: 12345,
-        )
-        app.video_placeholder = SimpleNamespace(place_forget=lambda: None)
-        app.embed = SimpleNamespace(host_is_hwnd=lambda: False)
         calls = []
 
         def inspect_device(serial, start_if_needed, ai_enabled=None):

@@ -210,6 +210,7 @@ class GuiUsbSharingTests(unittest.TestCase):
             "start_recording_button",
             "stop_recording_button",
             "copy_button",
+            "open_recordings_button",
             "update_yolo_button",
             "refresh_yolo_button",
             "start_after_update_check",
@@ -278,11 +279,10 @@ class GuiUsbSharingTests(unittest.TestCase):
 
         root_height = root.winfo_height()
         controls = root.grid_slaves(row=5, column=0)[0]
-        video_frame = root.grid_slaves(row=6, column=0)[0]
-        log_frame = root.grid_slaves(row=7, column=0)[0]
-        status_bar = root.grid_slaves(row=8, column=0)[0]
+        log_frame = root.grid_slaves(row=6, column=0)[0]
+        status_bar = root.grid_slaves(row=7, column=0)[0]
 
-        for widget in (controls, video_frame, log_frame, status_bar):
+        for widget in (controls, log_frame, status_bar):
             self.assertLessEqual(widget.winfo_y() + widget.winfo_height(), root_height)
         self.assertGreaterEqual(app.log_text.winfo_height(), min_log_text_height)
 
@@ -296,12 +296,12 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.addCleanup(root.destroy)
         app = self.make_real_app(root)
 
-        root.geometry("800x900")
+        root.geometry("880x640")
         root.update_idletasks()
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 900)
+        self.assertLessEqual(root.winfo_height(), 640)
         self.assert_bottom_rows_visible(root, app, min_log_text_height=60)
 
     def test_minimum_geometry_keeps_controls_status_and_some_log_visible(self):
@@ -314,20 +314,18 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.addCleanup(root.destroy)
         app = self.make_real_app(root)
 
-        root.geometry("800x900")
+        root.geometry("880x640")
         root.update_idletasks()
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 900)
+        self.assertLessEqual(root.winfo_height(), 640)
         root_height = root.winfo_height()
         controls = root.grid_slaves(row=5, column=0)[0]
-        video_frame = root.grid_slaves(row=6, column=0)[0]
-        log_frame = root.grid_slaves(row=7, column=0)[0]
-        status_bar = root.grid_slaves(row=8, column=0)[0]
+        log_frame = root.grid_slaves(row=6, column=0)[0]
+        status_bar = root.grid_slaves(row=7, column=0)[0]
 
         self.assertLessEqual(controls.winfo_y() + controls.winfo_height(), root_height)
-        self.assertGreater(video_frame.winfo_height(), 0)
         self.assertGreater(log_frame.winfo_height(), 0)
         self.assertLessEqual(status_bar.winfo_y() + status_bar.winfo_height(), root_height)
         self.assertGreater(app.log_text.winfo_height(), 0)
@@ -346,7 +344,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 1050)
+        self.assertLessEqual(root.winfo_height(), 760)
         self.assert_bottom_rows_visible(root, app, min_log_text_height=80)
 
     def test_build_ui_adds_usb_sharing_section_and_expected_rows(self):
@@ -392,9 +390,8 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(rows_by_text[TEXT["stream"]], 3)
         self.assertEqual(rows_by_text[TEXT["yolo_package"]], 4)
         self.assertEqual(rows_by_text[TEXT["controls"]], 5)
-        self.assertEqual(rows_by_text[TEXT["video"]], 6)
-        self.assertEqual(rows_by_text[TEXT["console"]], 7)
-        self.assertEqual(app.root.row_configs[7]["weight"], 1)
+        self.assertEqual(rows_by_text[TEXT["console"]], 6)
+        self.assertEqual(app.root.row_configs[6]["weight"], 1)
 
         self.assertIs(app.internet_adapter_combo.kwargs["textvariable"], app.selected_internet_adapter)
         self.assertEqual(app.internet_adapter_combo.kwargs["state"], "readonly")

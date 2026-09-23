@@ -14,6 +14,7 @@ TEXT = {
     "stop_recording": "停止录制",
     "not_playing": "未在播放",
     "recordings_dir": "录制文件",
+    "open_recordings": "打开录制文件夹",
     "serial": "设备序列号",
     "state": "状态",
     "refresh_devices": "刷新设备",

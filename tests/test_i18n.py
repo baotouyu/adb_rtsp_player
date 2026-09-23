@@ -19,6 +19,7 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(TEXT["stop_recording"], "停止录制")
         self.assertEqual(TEXT["not_playing"], "未在播放")
         self.assertEqual(TEXT["recordings_dir"], "录制文件")
+        self.assertEqual(TEXT["open_recordings"], "打开录制文件夹")
 
     def test_action_buttons_are_chinese(self):
         self.assertEqual(TEXT["refresh_devices"], "刷新设备")

@@ -55,6 +55,39 @@ class GuiConsoleTests(unittest.TestCase):
         self.assertIn("hello", app.log_text.lines[0])
         self.assertIn("$ adb devices", app.log_text.lines[1])
 
+    def test_open_recordings_creates_dir_and_opens_folder(self):
+        import os
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        app = object.__new__(RTSPToolApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app.recordings_dir = Path(temp_dir) / "recordings"
+            with patch("rtsp_tool.gui.os.name", "posix"):
+                with patch("rtsp_tool.gui.subprocess.Popen") as popen:
+                    app.open_recordings()
+
+            self.assertTrue(app.recordings_dir.is_dir())  # dir created inside try? recorded outside
+            args = popen.call_args.args[0]
+            self.assertEqual(args, ["xdg-open", str(app.recordings_dir)])
+            popen.assert_called_once()
+
+    def test_open_recordings_uses_startfile_on_windows(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        app = object.__new__(RTSPToolApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app.recordings_dir = Path(temp_dir) / "recordings"
+            with patch("rtsp_tool.gui.os.name", "nt"):
+                with patch("rtsp_tool.gui.os.startfile") as startfile:
+                    app.open_recordings()
+
+            startfile.assert_called_once_with(app.recordings_dir)
+
 
 if __name__ == "__main__":
     unittest.main()
