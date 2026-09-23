@@ -63,6 +63,9 @@ class FakeAdb:
         self.installs.append((serial, app_path, model_path, conf_path))
         return self.result
 
+    def prepare_yolo_update_command(self, serial):
+        return ["adb", "-s", serial, "shell", "rm", "-rf", "/tmp/yolo_app_update"]
+
 
 class FakePlayer:
     def __init__(self):
@@ -71,9 +74,16 @@ class FakePlayer:
     def is_running(self):
         return bool(self.started_urls)
 
-    def start(self, url):
+    def current_url(self):
+        return self.started_urls[-1] if self.started_urls else None
+
+    def start(self, url, **kwargs):
         self.started_urls.append(url)
+        self.process = SimpleNamespace(wait=lambda: None)  # watchdog reads this
         return ["ffplay", url]
+
+    def stop(self):
+        self.started_urls.clear()
 
 
 class FakeInspectAdb:
@@ -81,8 +91,17 @@ class FakeInspectAdb:
         self.running = running
         self.starts = []
 
+    def command_exists_command(self, serial):
+        return ["adb", "-s", serial, "shell", "test", "-x", "/usr/bin/sample_smart_camera"]
+
     def command_exists(self, serial):
         return True
+
+    def service_status_command(self, serial):
+        return ["adb", "-s", serial, "shell", "pidof", "sample_smart_camera"]
+
+    def start_service_command(self, serial, ai_enabled=False):
+        return ["adb", "-s", serial, "shell", "cd", "/tmp", "&&", "/usr/bin/sample_smart_camera"]
 
     def is_service_running(self, serial):
         return self.running
@@ -475,6 +494,14 @@ class GuiYoloPackageTests(unittest.TestCase):
         app._run_background = lambda _message, work: work()
         app._update_button_states = lambda: None
         app.player = FakePlayer()
+        app.recorder = SimpleNamespace(is_recording=lambda: False)
+        app.video_host = SimpleNamespace(
+            winfo_width=lambda: 640,
+            winfo_height=lambda: 360,
+            winfo_id=lambda: 12345,
+        )
+        app.video_placeholder = SimpleNamespace(place_forget=lambda: None)
+        app.embed = SimpleNamespace(host_is_hwnd=lambda: False)
         calls = []
 
         def inspect_device(serial, start_if_needed, ai_enabled=None):

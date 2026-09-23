@@ -392,7 +392,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(rows_by_text[TEXT["stream"]], 3)
         self.assertEqual(rows_by_text[TEXT["yolo_package"]], 4)
         self.assertEqual(rows_by_text[TEXT["controls"]], 5)
-        self.assertEqual(rows_by_text[TEXT["log"]], 6)
+        self.assertEqual(rows_by_text[TEXT["video"]], 6)
         self.assertEqual(rows_by_text[TEXT["console"]], 7)
         self.assertEqual(app.root.row_configs[7]["weight"], 1)
 

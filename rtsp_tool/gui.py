@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import threading
 import time
 import tkinter as tk
@@ -85,7 +86,7 @@ class RTSPToolApp:
         self.player = PlayerController(ffplay_path=ffplay_path)
         self.recorder = RecorderController(ffmpeg_path=ffmpeg_path)
         self.embed = EmbedController()
-        self.recordings_dir = get_app_dir() / "recordings"
+        self.recordings_dir = Path(get_app_dir()) / "recordings"
 
         self.devices: dict[str, ADBDevice] = {}
         self.selected_serial = tk.StringVar(value="")
@@ -757,14 +758,14 @@ class RTSPToolApp:
 
     def _inspect_device(self, serial: str, start_if_needed: bool, ai_enabled: bool = False) -> str:
         self._ui(self.log, f"正在检查设备 {serial} 上的 {SERVICE_NAME}...")
-        self._ui(self.command, self.adb.command_exists_command(serial)[1:])
+        self._ui(self.command, " ".join(self.adb.command_exists_command(serial)[1:]))
         if not self.adb.command_exists(serial):
             message = f"板端 PATH 里找不到 {SERVICE_NAME}。请确认 /usr/bin/{SERVICE_NAME} 存在并可执行。"
             self._ui(self.service_status.set, state_text("missing"))
             raise RuntimeError(message)
 
         if self.adb.is_service_running(serial):
-            self._ui(self.command, self.adb.service_status_command(serial)[1:])
+            self._ui(self.command, " ".join(self.adb.service_status_command(serial)[1:]))
             self._ui(self.service_status.set, state_text("running"))
             self._ui(self.log, f"{SERVICE_NAME} 已经在运行。")
             self._ui(self.log, "服务已运行，不会因为当前勾选框切换模式；如需切换，请先停止再启动。")
@@ -773,7 +774,7 @@ class RTSPToolApp:
             mode_text = "AI 检测 + 推流" if ai_enabled else "仅推流"
             self._ui(self.log, f"正在以{mode_text}模式启动 {SERVICE_NAME}，设备：{serial}...")
             start_command = self.adb.start_service_command(serial, ai_enabled=ai_enabled)
-            self._ui(self.command, start_command[1:])
+            self._ui(self.command, " ".join(start_command[1:]))
             result = self.adb.start_service(serial, ai_enabled=ai_enabled)
             if not result.ok:
                 self._ui(self.service_status.set, state_text("start failed"))
@@ -815,7 +816,7 @@ class RTSPToolApp:
 
         def work() -> None:
             self._ui(self.log, f"正在停止设备 {device.serial} 上的 {SERVICE_NAME}...")
-            self._ui(self.command, self.adb.stop_service_command(device.serial)[1:])
+            self._ui(self.command, " ".join(self.adb.stop_service_command(device.serial)[1:]))
             result = self.adb.stop_service(device.serial)
             if not result.ok:
                 self._ui(self.log, result.stderr.strip() or result.stdout.strip() or "停止命令返回非 0 状态。")

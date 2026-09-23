@@ -39,10 +39,11 @@ class BlockingProcess:
 
 class RecorderTests(unittest.TestCase):
     def test_build_ffmpeg_command_is_streaming_copy_remux(self):
+        output_path = Path("/tmp/recordings/20260923_153045.mp4")
         command = build_ffmpeg_command(
             "/usr/local/bin/ffmpeg",
             "rtsp://192.168.2.2:8554/ch0",
-            Path("/tmp/recordings/20260923_153045.mp4"),
+            output_path,
         )
         self.assertEqual(
             command,
@@ -59,7 +60,7 @@ class RecorderTests(unittest.TestCase):
                 "frag_keyframe+empty_moov+default_base_moof",
                 "-f",
                 "mp4",
-                "/tmp/recordings/20260923_153045.mp4",
+                str(output_path),
             ],
         )
 
