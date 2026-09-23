@@ -10,7 +10,15 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(TEXT["devices"], "ADB 设备")
         self.assertEqual(TEXT["stream"], "推流信息")
         self.assertEqual(TEXT["controls"], "操作")
-        self.assertEqual(TEXT["log"], "运行日志")
+        self.assertEqual(TEXT["log"], "按钮命令 + 日志")
+        self.assertEqual(TEXT["console"], "按钮命令 + 日志")
+
+    def test_video_recording_labels_are_chinese(self):
+        self.assertEqual(TEXT["video"], "视频画面")
+        self.assertEqual(TEXT["start_recording"], "开始录制")
+        self.assertEqual(TEXT["stop_recording"], "停止录制")
+        self.assertEqual(TEXT["not_playing"], "未在播放")
+        self.assertEqual(TEXT["recordings_dir"], "录制文件")
 
     def test_action_buttons_are_chinese(self):
         self.assertEqual(TEXT["refresh_devices"], "刷新设备")
@@ -42,7 +50,9 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(STATE_TEXT["stopped"], "已停止")
         self.assertEqual(STATE_TEXT["missing"], "未找到")
         self.assertEqual(STATE_TEXT["starting"], "启动中")
+        self.assertEqual(STATE_TEXT["start failed"], "启动失败")
         self.assertEqual(STATE_TEXT["ready"], "就绪")
+        self.assertEqual(STATE_TEXT["recording"], "录制中")
 
     def test_device_states_are_chinese(self):
         self.assertEqual(device_state_text("device"), "已连接")

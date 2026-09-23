@@ -30,3 +30,6 @@ docs/superpowers/
 
 # Local YOLO app/model packages
 yolo_apps/
+
+# Locally recorded MP4 files
+recordings/

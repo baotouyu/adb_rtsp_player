@@ -5,12 +5,15 @@ import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
+from types import SimpleNamespace
 from typing import Callable, TypeVar
 
 from .adb_client import ADBClient, ADBDevice, SERVICE_LOG, SERVICE_NAME
 from .dependencies import DependencyStatus, check_dependencies, get_app_dir
+from .embed import EmbedController, embed_window_title
 from .i18n import TEXT, device_state_text, state_text
 from .player import PlayerController, build_rtsp_url
+from .recorder import RecorderController
 from . import windows_ics
 from .windows_ics import (
     NetworkAdapter,
@@ -71,20 +74,25 @@ class RTSPToolApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(TEXT["app_title"])
-        self.root.geometry("920x720")
-        self.root.minsize(760, 640)
+        self.root.geometry("980x1050")
+        self.root.minsize(800, 900)
 
         self.dependencies = check_dependencies()
         adb_path = self.dependencies["adb"].path or "adb"
         ffplay_path = self.dependencies["ffplay"].path or "ffplay"
+        ffmpeg_path = (self.dependencies.get("ffmpeg") or SimpleNamespace(path=None)).path or "ffmpeg"
         self.adb = ADBClient(adb_path=adb_path)
         self.player = PlayerController(ffplay_path=ffplay_path)
+        self.recorder = RecorderController(ffmpeg_path=ffmpeg_path)
+        self.embed = EmbedController()
+        self.recordings_dir = get_app_dir() / "recordings"
 
         self.devices: dict[str, ADBDevice] = {}
         self.selected_serial = tk.StringVar(value="")
         self.device_ip = tk.StringVar(value="")
         self.rtsp_url = tk.StringVar(value="")
         self.service_status = tk.StringVar(value=state_text("unknown"))
+        self.recording_status = tk.StringVar(value=state_text("stopped"))
         self.status_text = tk.StringVar(value=state_text("ready"))
         self.dep_vars: dict[str, tk.StringVar] = {}
         self.yolo_packages: dict[str, YoloPackage] = {}
@@ -116,12 +124,12 @@ class RTSPToolApp:
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(6, weight=1)
+        self.root.rowconfigure(7, weight=1)
 
         dep_frame = ttk.LabelFrame(self.root, text=TEXT["dependencies"])
         dep_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
-        dep_frame.columnconfigure((0, 1, 2), weight=1)
-        for index, name in enumerate(("adb", "ffplay", "tkinter")):
+        dep_frame.columnconfigure((0, 1, 2, 3), weight=1)
+        for index, name in enumerate(("adb", "ffplay", "ffmpeg", "tkinter")):
             self.dep_vars[name] = tk.StringVar(value=f"{name}: {state_text('checking')}")
             ttk.Label(dep_frame, textvariable=self.dep_vars[name]).grid(
                 row=0, column=index, sticky="w", padx=10, pady=4
@@ -248,7 +256,7 @@ class RTSPToolApp:
 
         controls = ttk.LabelFrame(self.root, text=TEXT["controls"])
         controls.grid(row=5, column=0, sticky="ew", padx=12, pady=4)
-        for col in range(5):
+        for col in range(7):
             controls.columnconfigure(col, weight=1)
         self.start_service_button = ttk.Button(
             controls, text=TEXT["start_board_stream"], command=self.start_board_service
@@ -262,15 +270,36 @@ class RTSPToolApp:
         self.stop_playback_button = ttk.Button(
             controls, text=TEXT["stop_playback"], command=self.stop_playback
         )
+        self.start_recording_button = ttk.Button(
+            controls, text=TEXT["start_recording"], command=self.start_recording
+        )
+        self.stop_recording_button = ttk.Button(
+            controls, text=TEXT["stop_recording"], command=self.stop_recording
+        )
         self.copy_button = ttk.Button(controls, text=TEXT["copy_rtsp_url"], command=self.copy_rtsp_url)
         self.start_service_button.grid(row=0, column=0, sticky="ew", padx=6, pady=4)
         self.stop_service_button.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
         self.start_playback_button.grid(row=0, column=2, sticky="ew", padx=6, pady=4)
         self.stop_playback_button.grid(row=0, column=3, sticky="ew", padx=6, pady=4)
-        self.copy_button.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
+        self.start_recording_button.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
+        self.stop_recording_button.grid(row=0, column=5, sticky="ew", padx=6, pady=4)
+        self.copy_button.grid(row=0, column=6, sticky="ew", padx=6, pady=4)
 
-        log_frame = ttk.LabelFrame(self.root, text=TEXT["log"])
-        log_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=(4, 6))
+        video_frame = ttk.LabelFrame(self.root, text=TEXT["video"])
+        video_frame.grid(row=6, column=0, sticky="nsew", padx=12, pady=4)
+        video_frame.columnconfigure(0, weight=1)
+        video_frame.rowconfigure(0, weight=1)
+        self.video_host = tk.Frame(video_frame, bg="#000000", height=360)
+        self.video_host.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=4)
+        self.video_host.grid_propagate(False)
+        self.video_placeholder = ttk.Label(
+            self.video_host, text=TEXT["not_playing"], foreground="gray", background="#000000"
+        )
+        self.video_placeholder.place(relx=0.5, rely=0.5, anchor="center")
+        self.video_host.bind("<Configure>", self._on_video_host_configure)
+
+        log_frame = ttk.LabelFrame(self.root, text=TEXT["console"])
+        log_frame.grid(row=7, column=0, sticky="nsew", padx=12, pady=(4, 6))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, height=8, wrap="word", state="disabled")
@@ -280,7 +309,7 @@ class RTSPToolApp:
         self.log_text.configure(yscrollcommand=log_scroll.set)
 
         status_bar = ttk.Label(self.root, textvariable=self.status_text, anchor="w")
-        status_bar.grid(row=7, column=0, sticky="ew", padx=12, pady=(0, 8))
+        status_bar.grid(row=8, column=0, sticky="ew", padx=12, pady=(0, 8))
 
     def _add_compact_field(
         self, parent: ttk.Frame, row: int, column: int, label: str, variable: tk.StringVar
@@ -289,6 +318,14 @@ class RTSPToolApp:
         ttk.Label(parent, textvariable=variable).grid(
             row=row, column=column + 1, sticky="ew", padx=10, pady=2
         )
+
+    def _on_video_host_configure(self, event: object | None = None) -> None:
+        if event is None or not hasattr(self, "embed"):
+            return
+        width = getattr(event, "width", 0)
+        height = getattr(event, "height", 0)
+        if width and height:
+            self.embed.resize(width, height)
 
     def _render_dependency_status(self) -> None:
         for name, status in self.dependencies.items():
@@ -331,6 +368,15 @@ class RTSPToolApp:
             state="normal" if has_adb and has_ffplay and has_device and not busy else "disabled"
         )
         self.stop_playback_button.configure(state="normal" if self.player.is_running() and not busy else "disabled")
+        has_ffmpeg = bool((self.dependencies.get("ffmpeg") or SimpleNamespace(found=False)).found)
+        playing = self.player.is_running()
+        recording = self.recorder.is_recording()
+        self.start_recording_button.configure(
+            state="normal" if has_ffmpeg and playing and not recording and not busy else "disabled"
+        )
+        self.stop_recording_button.configure(
+            state="normal" if recording and not busy else "disabled"
+        )
         self.copy_button.configure(state="normal" if has_url else "disabled")
         self.refresh_yolo_button.configure(state="normal")
         self.update_yolo_button.configure(
@@ -383,6 +429,7 @@ class RTSPToolApp:
             return
 
         def work() -> None:
+            self._ui(self.command, "powershell -NoProfile -Command Get-NetAdapter...")
             self._ui(self.log, "正在检测 Windows 网络适配器...")
             adapters = run_adapter_discovery()
             self._ui(self._replace_network_adapters, adapters)
@@ -449,6 +496,7 @@ class RTSPToolApp:
             return
 
         def work() -> None:
+            self._ui(self.command, "powershell -NoProfile -Command Start-Process -Verb RunAs enable-ics.ps1")
             self._ui(self.log, "正在请求管理员权限配置 Windows 网络共享...")
             result = configure_ics(internet_adapter.name, usb_adapter.name)
             self._ui(self.usb_sharing_status.set, result.message)
@@ -465,6 +513,7 @@ class RTSPToolApp:
             self._show_usb_sharing_windows_only_message()
             return
 
+        self.command("control.exe ncpa.cpl")
         try:
             open_windows_network_settings()
         except Exception as exc:
@@ -484,6 +533,7 @@ class RTSPToolApp:
             return
 
         def work() -> None:
+            self._ui(self.command, f"adb -s {device.serial} shell ip addr show usb0")
             self._ui(self.log, f"正在检测设备 {device.serial} 的 usb0 IP...")
             ip = self.adb.discover_usb0_ip(device.serial)
             if not ip:
@@ -524,6 +574,10 @@ class RTSPToolApp:
         self.log_text.insert("end", f"[{timestamp}] {message}\n")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+
+    def command(self, message: str) -> None:
+        """Write a button-executed command line into the console (prefix ``$ ``)."""
+        self.log(f"$ {message}")
 
     def refresh_yolo_packages(self) -> None:
         current_selection = self.selected_yolo_package.get()
@@ -596,6 +650,8 @@ class RTSPToolApp:
 
         def work() -> None:
             self._ui(self.log, f"正在更新 YOLO 组合包 {package.display_name} 到设备 {device.serial}...")
+            self._ui(self.command, " ".join(self.adb.prepare_yolo_update_command(device.serial)[1:]))
+            self._ui(self.command, f"adb -s {device.serial} push {package.app_path} -> /tmp/yolo_app_update/sample_smart_camera")
             result = self.adb.install_yolo_package(
                 device.serial,
                 str(package.app_path),
@@ -622,6 +678,7 @@ class RTSPToolApp:
 
     def refresh_devices(self) -> None:
         def work() -> None:
+            self._ui(self.command, "adb devices")
             self._ui(self.log, "正在执行 adb devices...")
             devices = self.adb.list_devices()
             self._ui(self._replace_devices, devices)
@@ -700,12 +757,14 @@ class RTSPToolApp:
 
     def _inspect_device(self, serial: str, start_if_needed: bool, ai_enabled: bool = False) -> str:
         self._ui(self.log, f"正在检查设备 {serial} 上的 {SERVICE_NAME}...")
+        self._ui(self.command, self.adb.command_exists_command(serial)[1:])
         if not self.adb.command_exists(serial):
             message = f"板端 PATH 里找不到 {SERVICE_NAME}。请确认 /usr/bin/{SERVICE_NAME} 存在并可执行。"
             self._ui(self.service_status.set, state_text("missing"))
             raise RuntimeError(message)
 
         if self.adb.is_service_running(serial):
+            self._ui(self.command, self.adb.service_status_command(serial)[1:])
             self._ui(self.service_status.set, state_text("running"))
             self._ui(self.log, f"{SERVICE_NAME} 已经在运行。")
             self._ui(self.log, "服务已运行，不会因为当前勾选框切换模式；如需切换，请先停止再启动。")
@@ -713,6 +772,8 @@ class RTSPToolApp:
             self._ui(self.service_status.set, state_text("starting"))
             mode_text = "AI 检测 + 推流" if ai_enabled else "仅推流"
             self._ui(self.log, f"正在以{mode_text}模式启动 {SERVICE_NAME}，设备：{serial}...")
+            start_command = self.adb.start_service_command(serial, ai_enabled=ai_enabled)
+            self._ui(self.command, start_command[1:])
             result = self.adb.start_service(serial, ai_enabled=ai_enabled)
             if not result.ok:
                 self._ui(self.service_status.set, state_text("start failed"))
@@ -726,6 +787,7 @@ class RTSPToolApp:
             self._ui(self.service_status.set, state_text("stopped"))
             self._ui(self.log, f"{SERVICE_NAME} 当前未运行。")
 
+        self._ui(self.command, "adb -s %s shell ip route" % serial)
         ip = self.adb.discover_ip(serial)
         if not ip:
             raise RuntimeError("无法通过 ip route 或 ifconfig 获取板端 IP。")
@@ -753,6 +815,7 @@ class RTSPToolApp:
 
         def work() -> None:
             self._ui(self.log, f"正在停止设备 {device.serial} 上的 {SERVICE_NAME}...")
+            self._ui(self.command, self.adb.stop_service_command(device.serial)[1:])
             result = self.adb.stop_service(device.serial)
             if not result.ok:
                 self._ui(self.log, result.stderr.strip() or result.stdout.strip() or "停止命令返回非 0 状态。")
@@ -771,14 +834,55 @@ class RTSPToolApp:
 
         def work() -> None:
             url = self._inspect_device(device.serial, start_if_needed=True, ai_enabled=ai_enabled)
-            command = self.player.start(url)
+            if self.player.is_running() and self.player.current_url() == url:
+                self._ui(self.log, "已在播放该地址，无需重复启动。")
+                self._ui(self._update_button_states)
+                return
+            title = embed_window_title()
+            width = self.video_host.winfo_width()
+            height = self.video_host.winfo_height()
+            if width <= 1 or height <= 1:
+                width, height = 640, 360
+
+            self._ui(self._hide_video_placeholder)
+            command = self.player.start(url, window_title=title, width=width, height=height)
+            self._ui(self.command, " ".join(command))
             self._ui(self.log, "已启动 ffplay：" + " ".join(command))
+
+            process = self.player.process
+            if process is not None:
+                thread = threading.Thread(
+                    target=lambda: (process.wait(), self._ui(self._on_ffplay_exit)), daemon=True
+                )
+                thread.start()
+
+            if self.embed.host_is_hwnd():
+                self.embed.attach_async(
+                    self.video_host.winfo_id(),
+                    title,
+                    width,
+                    height,
+                    on_failed=lambda: self._ui(self.log, "内嵌播放窗口关联失败，视频将显示在独立窗口中。"),
+                )
+            else:
+                self._ui(self.log, "非 Windows：视频将显示在独立 ffplay 窗口中。")
             self._ui(self._update_button_states)
 
         self._run_background("正在开始播放...", work)
 
+    def _hide_video_placeholder(self) -> None:
+        if hasattr(self, "video_placeholder"):
+            self.video_placeholder.place_forget()
+
     def stop_playback(self) -> None:
+        if self.recorder.is_recording():
+            path = self.recorder.stop()
+            if path is not None:
+                self.log(f"播放已停止，录制已保存：{path}")
+            self.recording_status.set(state_text("stopped"))
         self.player.stop()
+        self.command("终止 ffplay 进程")
+        self._reset_video_placeholder()
         self.log("已停止 ffplay 播放。")
         self._update_button_states()
 
@@ -791,7 +895,51 @@ class RTSPToolApp:
         self.root.clipboard_append(url)
         self.log(f"已复制 RTSP 地址：{url}")
 
+    def start_recording(self) -> None:
+        url = self.rtsp_url.get()
+        if not url:
+            messagebox.showwarning("没有 RTSP 地址", "请先开始播放，然后才能录制。")
+            return
+        try:
+            command = self.recorder.start(url, self.recordings_dir)
+        except (OSError, RuntimeError) as exc:
+            self.log(f"错误：{exc}")
+            messagebox.showerror("录制启动失败", str(exc))
+            self._update_button_states()
+            return
+        output_path = self.recorder.recording.output_path if self.recorder.recording else None
+        self.command(" ".join(command))
+        if output_path is not None:
+            self.log(f"已开始录制：{output_path}")
+        self.recording_status.set(state_text("recording"))
+        self._update_button_states()
+
+    def stop_recording(self) -> None:
+        path = self.recorder.stop()
+        self.command("终止 ffmpeg 录制进程")
+        if path is not None:
+            self.log(f"已停止录制：{path}")
+        else:
+            self.log("录制未在进行。")
+        self.recording_status.set(state_text("stopped"))
+        self._update_button_states()
+
+    def _reset_video_placeholder(self) -> None:
+        self.embed.detach()
+        if hasattr(self, "video_placeholder") and hasattr(self, "video_host"):
+            self.video_placeholder.place(relx=0.5, rely=0.5, anchor="center")
+
+    def _on_ffplay_exit(self) -> None:
+        self._reset_video_placeholder()
+        self.log("ffplay 已退出。")
+        self._update_button_states()
+
     def on_close(self) -> None:
+        self.embed.detach()
+        if self.recorder.is_recording():
+            path = self.recorder.stop()
+            if path is not None:
+                self.log(f"录制已保存：{path}")
         self.player.stop()
         self.adb.stop_all_local_service_processes()
         self.root.destroy()

@@ -6,6 +6,8 @@ import subprocess
 import time
 from typing import Sequence
 
+from . import spawn
+
 
 SERVICE_NAME = "sample_smart_camera"
 SERVICE_PATH = "/usr/bin/sample_smart_camera"
@@ -129,6 +131,7 @@ class ADBClient:
                 capture_output=True,
                 timeout=self.timeout if timeout is None else timeout,
                 check=False,
+                creationflags=spawn.subprocess_flags(),
             )
             return CommandResult(command, completed.returncode, completed.stdout, completed.stderr)
         except subprocess.TimeoutExpired as exc:
@@ -221,6 +224,7 @@ class ADBClient:
                 command,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                creationflags=spawn.subprocess_flags(),
             )
             self._service_commands[serial] = command
             return CommandResult(command, 0, "started", "")

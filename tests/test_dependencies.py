@@ -119,8 +119,10 @@ class DependencyTests(unittest.TestCase):
             app_dir = Path(tmpdir)
             bundled_adb = app_dir / "tools" / "adb" / "adb.exe"
             bundled_ffplay = app_dir / "tools" / "ffmpeg" / "ffplay.exe"
+            bundled_ffmpeg = app_dir / "tools" / "ffmpeg" / "ffmpeg.exe"
             self._touch(bundled_adb)
             self._touch(bundled_ffplay)
+            self._touch(bundled_ffmpeg)
 
             with patch("rtsp_tool.dependencies.os.name", "nt"):
                 with patch("rtsp_tool.dependencies.shutil.which", return_value=None):
@@ -130,6 +132,8 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(statuses["adb"].source, "bundled")
         self.assertEqual(statuses["ffplay"].path, str(bundled_ffplay))
         self.assertEqual(statuses["ffplay"].source, "bundled")
+        self.assertEqual(statuses["ffmpeg"].path, str(bundled_ffmpeg))
+        self.assertEqual(statuses["ffmpeg"].source, "bundled")
         self.assertEqual(statuses["tkinter"].source, "stdlib")
 
     def test_get_app_dir_points_at_project_root_in_normal_python(self):
@@ -142,6 +146,29 @@ class DependencyTests(unittest.TestCase):
             with patch("rtsp_tool.dependencies.sys.frozen", True, create=True):
                 with patch("rtsp_tool.dependencies.sys.executable", str(fake_executable)):
                     self.assertEqual(get_app_dir(), fake_executable.resolve().parent)
+
+    def test_bundled_command_candidates_lists_ffmpeg(self):
+        with TemporaryDirectory() as tmpdir:
+            with patch("rtsp_tool.dependencies._command_filename", return_value="ffmpeg.exe"):
+                candidates = bundled_command_candidates("ffmpeg", app_dir=Path(tmpdir))
+
+        self.assertEqual(candidates, [Path(tmpdir) / "tools" / "ffmpeg" / "ffmpeg.exe"])
+
+    def test_check_command_prefers_bundled_windows_ffmpeg_over_path(self):
+        with TemporaryDirectory() as tmpdir:
+            app_dir = Path(tmpdir)
+            bundled_ffmpeg = app_dir / "tools" / "ffmpeg" / "ffmpeg.exe"
+            self._touch(bundled_ffmpeg)
+
+            with patch("rtsp_tool.dependencies.os.name", "nt"):
+                with patch("rtsp_tool.dependencies.shutil.which", return_value=r"C:\ffmpeg\bin\ffmpeg.exe"):
+                    status = check_command("ffmpeg", app_dir=app_dir)
+
+        self.assertEqual(status.name, "ffmpeg")
+        self.assertTrue(status.found)
+        self.assertEqual(status.path, str(bundled_ffmpeg))
+        self.assertEqual(status.message, "found in bundled tools")
+        self.assertEqual(status.source, "bundled")
 
     def test_check_command_ignores_non_executable_bundled_tool_on_posix(self):
         with TemporaryDirectory() as tmpdir:

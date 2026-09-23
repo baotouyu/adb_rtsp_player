@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 启动时检查可用运行工具：`adb`、`ffplay`、`tkinter`
+- 启动时检查可用运行工具：`adb`、`ffplay`、`ffmpeg`（可选）、`tkinter`
 - 自动列出 `adb devices`
 - 手动选择设备
 - 检查板端是否能直接运行 `/usr/bin/sample_smart_camera`
@@ -15,7 +15,9 @@
 - 自动生成：`rtsp://<设备IP>:8554/ch0`
 - 扫描本地 `yolo_apps/yoloApp_*` 应用和模型包
 - 一键覆盖更新板端 app/model
-- 用独立 `ffplay` 窗口播放
+- **内嵌播放**：视频直接显示在主窗口的固定黑色视频区里，窗口关闭前一直存在；重复点击“开始播放”不会叠加窗口
+- **按钮命令 + 日志控制台**：主窗口底部固定显示每个按钮实际执行的命令行（`$ …`）和运行日志
+- **录制 MP4**：播放中可“开始录制 / 停止录制”，每次录制生成一个 `recordings/YYYYmmdd_HHMMSS.mp4`；同一播放会话可反复录制多次
 - 支持停止本机播放、停止板端推流服务、复制 RTSP 地址
 
 ## Windows 免安装使用
@@ -40,6 +42,7 @@ ADB_RTSP_Player/
       其他 Android platform-tools 文件和 notices
     ffmpeg/
       ffplay.exe
+      ffmpeg.exe
       *.dll
       FFmpeg/Gyan README、LICENSE、doc/、licenses/ 等文件
 ```
@@ -53,6 +56,34 @@ ADB_RTSP_Player/
 - 某些 Windows 电脑可能需要设备厂商的 USB/ADB 驱动，这是系统驱动问题，不是 Python 依赖问题。
 - 如果 Windows 防火墙或安全软件弹窗，请允许本程序或 `ffplay.exe` 访问局域网。
 - 未签名的 PyInstaller 程序可能触发 Windows SmartScreen 或杀毒软件提示；如果 zip 来自你信任的发布来源，可以选择允许或仍要运行。
+
+## 内嵌播放与命令控制台
+
+播放画面用 `ffplay` 渲染，视频直接内嵌在主窗口中间的**固定黑色视频区**里，不会弹出独立播放窗口。主窗口底部是一个固定的**控制台**（“按钮命令 + 日志”），显示每个按钮实际执行的命令行（以 `$` 开头）和运行日志，比如：
+
+```text
+[18:30:01] $ adb devices
+[18:30:05] $ cd /tmp && /usr/bin/sample_smart_camera --rtsp-only >/tmp/sample_smart_camera.log 2>&1
+[18:30:08] $ ffplay -rtsp_transport tcp -window_title ADB_RTSP_Player_Embedded_… -x 940 -y 360 rtsp://192.168.1.10:8554/ch0
+```
+
+- 黑色视频区从程序启动到关闭一直存在；“停止播放”或视频进程结束后会恢复“未在播放”占位提示。
+- 快速重复点击“开始播放”不会堆积多个视频窗口：同一 RTSP 地址只会启动一个 `ffplay`，已启动时直接复用。
+- 视频区会跟随主窗口尺寸变化；在 Windows 高 DPI 缩放下视频区尺寸可能略有偏差（已知限制）。
+- 非 Windows（开发/测试）下不会做窗口内嵌，视频显示在独立的 `ffplay` 窗口中。
+
+## 录制 MP4
+
+播放开始后，“开始录制 / 停止录制”按钮可用。点“开始录制”会原样封装当前 RTSP 流（`-c copy`，不重编码）到：
+
+```text
+recordings/YYYYmmdd_HHMMSS.mp4
+```
+
+- “停止录制”结束当前录制并生成 mp4 文件；播放停止或退出程序时如果还在录制，会先自动结束并保存。
+- 同一播放会话中可以反复“开始录制 → 停止录制”，每次一个独立文件。
+- 录制文件使用**分片 MP4**（`frag_keyframe+empty_moov`），即使中途停止或异常退出，已写的内容也能正常播放。
+- 录制依赖 `ffmpeg.exe`（与 `ffplay.exe` 一起打包在 `tools/ffmpeg/`）。没有 ffmpeg 时“开始录制”按钮会禁用，但**播放不受影响**。
 
 ## Windows USB 网络共享（ICS）
 
@@ -81,9 +112,11 @@ tools/adb/adb
 tools/adb/adb.exe
 tools/ffmpeg/ffplay
 tools/ffmpeg/ffplay.exe
+tools/ffmpeg/ffmpeg
+tools/ffmpeg/ffmpeg.exe
 ```
 
-如果没有内置工具，会继续从系统 `PATH` 查找 `adb` 和 `ffplay`。
+如果没有内置工具，会继续从系统 `PATH` 查找 `adb` 和 `ffplay`（录制还需要能查找到 `ffmpeg`）。
 
 ## YOLO App 和模型包更新
 
@@ -154,10 +187,11 @@ cd /tmp && /usr/bin/sample_smart_camera >/tmp/sample_smart_camera.log 2>&1
 ```bash
 adb
 ffplay
+ffmpeg    # 仅录制需要；没有也能播放
 tkinter
 ```
 
-如果项目目录里没有内置工具，请自行安装 Android platform-tools 和 FFmpeg，并确保 `adb`、`ffplay` 可以从系统 `PATH` 找到。
+如果项目目录里没有内置工具，请自行安装 Android platform-tools 和 FFmpeg，并确保 `adb`、`ffplay` 可以从系统 `PATH` 找到（录制还需要 `ffmpeg`）。
 
 ## 常见问题
 
@@ -188,6 +222,7 @@ tools/
     其他 Android platform-tools 文件和 notices
   ffmpeg/
     ffplay.exe
+    ffmpeg.exe
     *.dll
     FFmpeg/Gyan README、LICENSE、doc/、licenses/ 等文件
 ```
@@ -204,6 +239,8 @@ python -m pip install -r requirements-build.txt
 ```text
 dist/ADB_RTSP_Player_Windows.zip
 ```
+
+录制产生的 `recordings/` 目录会在运行时自动创建，不需要提前放入包内。
 
 最简单的方式是使用 GitHub Actions：workflow 会自动下载并校验固定版本的 Android platform-tools r37.0.0 和 FFmpeg 8.1.1 essentials，然后上传可直接解压的 Windows artifact；下载该 artifact 后解压一次即可看到 `ADB_RTSP_Player/` 文件夹。
 

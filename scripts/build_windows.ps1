@@ -11,6 +11,7 @@ $AdbSourceDir = Join-Path $ToolsRoot "adb"
 $FfmpegSourceDir = Join-Path $ToolsRoot "ffmpeg"
 $AdbExe = Join-Path $AdbSourceDir "adb.exe"
 $FfplayExe = Join-Path $FfmpegSourceDir "ffplay.exe"
+$FfmpegExe = Join-Path $FfmpegSourceDir "ffmpeg.exe"
 $SpecPath = Join-Path $Root "packaging\windows\ADB_RTSP_Player.spec"
 $DistDir = Join-Path $Root "dist\$DistName"
 $DistToolsDir = Join-Path $DistDir "tools"
@@ -22,6 +23,10 @@ if (!(Test-Path -LiteralPath $AdbExe)) {
 
 if (!(Test-Path -LiteralPath $FfplayExe)) {
     throw "Missing bundled ffplay at $FfplayExe"
+}
+
+if (!(Test-Path -LiteralPath $FfmpegExe)) {
+    throw "Missing bundled ffmpeg at $FfmpegExe"
 }
 
 $PushedLocation = $false
@@ -64,6 +69,7 @@ try {
     $PackagedAdbApiDll = Join-Path $DistToolsDir "adb\AdbWinApi.dll"
     $PackagedAdbUsbDll = Join-Path $DistToolsDir "adb\AdbWinUsbApi.dll"
     $PackagedFfplayExe = Join-Path $DistToolsDir "ffmpeg\ffplay.exe"
+    $PackagedFfmpegExe = Join-Path $DistToolsDir "ffmpeg\ffmpeg.exe"
 
     if (!(Test-Path -LiteralPath $PackagedAdbExe)) {
         throw "Packaged adb.exe is missing"
@@ -77,6 +83,9 @@ try {
     if (!(Test-Path -LiteralPath $PackagedFfplayExe)) {
         throw "Packaged ffplay.exe is missing"
     }
+    if (!(Test-Path -LiteralPath $PackagedFfmpegExe)) {
+        throw "Packaged ffmpeg.exe is missing"
+    }
 
     & $PackagedAdbExe version
     if ($LASTEXITCODE -ne 0) {
@@ -86,6 +95,11 @@ try {
     & $PackagedFfplayExe -version
     if ($LASTEXITCODE -ne 0) {
         throw "Packaged ffplay.exe failed to run"
+    }
+
+    & $PackagedFfmpegExe -version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged ffmpeg.exe failed to run"
     }
 
     Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
@@ -107,6 +121,7 @@ try {
     $SmokeAdbApiDll = Join-Path $SmokeRoot "ADB_RTSP_Player\tools\adb\AdbWinApi.dll"
     $SmokeAdbUsbDll = Join-Path $SmokeRoot "ADB_RTSP_Player\tools\adb\AdbWinUsbApi.dll"
     $SmokeFfplayExe = Join-Path $SmokeRoot "ADB_RTSP_Player\tools\ffmpeg\ffplay.exe"
+    $SmokeFfmpegExe = Join-Path $SmokeRoot "ADB_RTSP_Player\tools\ffmpeg\ffmpeg.exe"
 
     if (!(Test-Path -LiteralPath $SmokeAdbExe)) {
         throw "Smoke test failed: packaged adb.exe is missing"
@@ -120,6 +135,9 @@ try {
     if (!(Test-Path -LiteralPath $SmokeFfplayExe)) {
         throw "Smoke test failed: packaged ffplay.exe is missing"
     }
+    if (!(Test-Path -LiteralPath $SmokeFfmpegExe)) {
+        throw "Smoke test failed: packaged ffmpeg.exe is missing"
+    }
 
     & $SmokeAdbExe version
     if ($LASTEXITCODE -ne 0) {
@@ -129,6 +147,11 @@ try {
     & $SmokeFfplayExe -version
     if ($LASTEXITCODE -ne 0) {
         throw "Smoke test failed: packaged ffplay.exe failed to run"
+    }
+
+    & $SmokeFfmpegExe -version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Smoke test failed: packaged ffmpeg.exe failed to run"
     }
 
     Write-Host "Created $ZipPath"

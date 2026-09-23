@@ -91,6 +91,15 @@ class FakeWidget:
     def grid(self, **kwargs):
         self.grid_kwargs = kwargs
 
+    def place(self, **kwargs):
+        self.place_kwargs = kwargs
+
+    def place_forget(self):
+        self.place_kwargs = None
+
+    def grid_propagate(self, _flag):
+        self.configured["grid_propagate"] = _flag
+
     def columnconfigure(self, *args, **kwargs):
         self.configured[("columnconfigure", args)] = kwargs
 
@@ -141,6 +150,13 @@ class GuiUsbSharingTests(unittest.TestCase):
                 message="not found in bundled tools or PATH",
                 source="missing",
             ),
+            "ffmpeg": DependencyStatus(
+                name="ffmpeg",
+                found=False,
+                path=None,
+                message="not found in bundled tools or PATH",
+                source="missing",
+            ),
             "tkinter": DependencyStatus(
                 name="tkinter",
                 found=True,
@@ -154,12 +170,17 @@ class GuiUsbSharingTests(unittest.TestCase):
         app = object.__new__(RTSPToolApp)
         app.root = FakeRoot()
         app.status_text = FakeVar("")
-        app.dependencies = {"adb": SimpleNamespace(found=True), "ffplay": SimpleNamespace(found=True)}
+        app.dependencies = {
+            "adb": SimpleNamespace(found=True),
+            "ffplay": SimpleNamespace(found=True),
+            "ffmpeg": SimpleNamespace(found=True),
+        }
         app.devices = {"abc": SimpleNamespace(serial="abc", state="device" if usable_device else "offline")}
         app.selected_serial = FakeVar("abc")
         app.device_ip = FakeVar("")
         app.rtsp_url = FakeVar("")
         app.player = SimpleNamespace(is_running=lambda: False)
+        app.recorder = SimpleNamespace(is_recording=lambda: False)
         app.selected_yolo_package = FakeVar("")
         app.yolo_packages = {}
         app._operation_in_progress = busy
@@ -176,6 +197,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         app.usb_adapter_combo = FakeCombobox()
         app.logged = []
         app.log = app.logged.append
+        app.command = app.logged.append
         app._ui = lambda func, *args: func(*args)
         app.adb = SimpleNamespace(discover_usb0_ip=lambda _serial: None)
 
@@ -185,6 +207,8 @@ class GuiUsbSharingTests(unittest.TestCase):
             "stop_service_button",
             "start_playback_button",
             "stop_playback_button",
+            "start_recording_button",
+            "stop_recording_button",
             "copy_button",
             "update_yolo_button",
             "refresh_yolo_button",
@@ -254,10 +278,11 @@ class GuiUsbSharingTests(unittest.TestCase):
 
         root_height = root.winfo_height()
         controls = root.grid_slaves(row=5, column=0)[0]
-        log_frame = root.grid_slaves(row=6, column=0)[0]
-        status_bar = root.grid_slaves(row=7, column=0)[0]
+        video_frame = root.grid_slaves(row=6, column=0)[0]
+        log_frame = root.grid_slaves(row=7, column=0)[0]
+        status_bar = root.grid_slaves(row=8, column=0)[0]
 
-        for widget in (controls, log_frame, status_bar):
+        for widget in (controls, video_frame, log_frame, status_bar):
             self.assertLessEqual(widget.winfo_y() + widget.winfo_height(), root_height)
         self.assertGreaterEqual(app.log_text.winfo_height(), min_log_text_height)
 
@@ -271,13 +296,13 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.addCleanup(root.destroy)
         app = self.make_real_app(root)
 
-        root.geometry("920x720")
+        root.geometry("800x900")
         root.update_idletasks()
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 720)
-        self.assert_bottom_rows_visible(root, app, min_log_text_height=80)
+        self.assertLessEqual(root.winfo_height(), 900)
+        self.assert_bottom_rows_visible(root, app, min_log_text_height=60)
 
     def test_minimum_geometry_keeps_controls_status_and_some_log_visible(self):
         self.skip_windows_ci_real_tk_layout()
@@ -289,18 +314,20 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.addCleanup(root.destroy)
         app = self.make_real_app(root)
 
-        root.geometry("760x640")
+        root.geometry("800x900")
         root.update_idletasks()
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 640)
+        self.assertLessEqual(root.winfo_height(), 900)
         root_height = root.winfo_height()
         controls = root.grid_slaves(row=5, column=0)[0]
-        log_frame = root.grid_slaves(row=6, column=0)[0]
-        status_bar = root.grid_slaves(row=7, column=0)[0]
+        video_frame = root.grid_slaves(row=6, column=0)[0]
+        log_frame = root.grid_slaves(row=7, column=0)[0]
+        status_bar = root.grid_slaves(row=8, column=0)[0]
 
         self.assertLessEqual(controls.winfo_y() + controls.winfo_height(), root_height)
+        self.assertGreater(video_frame.winfo_height(), 0)
         self.assertGreater(log_frame.winfo_height(), 0)
         self.assertLessEqual(status_bar.winfo_y() + status_bar.winfo_height(), root_height)
         self.assertGreater(app.log_text.winfo_height(), 0)
@@ -319,7 +346,7 @@ class GuiUsbSharingTests(unittest.TestCase):
         root.withdraw()
         root.update_idletasks()
 
-        self.assertLessEqual(root.winfo_height(), 720)
+        self.assertLessEqual(root.winfo_height(), 1050)
         self.assert_bottom_rows_visible(root, app, min_log_text_height=80)
 
     def test_build_ui_adds_usb_sharing_section_and_expected_rows(self):
@@ -349,6 +376,7 @@ class GuiUsbSharingTests(unittest.TestCase):
             "rtsp_tool.gui.ttk.Combobox": fake_widget_type("Combobox"),
             "rtsp_tool.gui.ttk.Checkbutton": fake_widget_type("Checkbutton"),
             "rtsp_tool.gui.tk.Text": fake_widget_type("Text"),
+            "rtsp_tool.gui.tk.Frame": fake_widget_type("Frame"),
             "rtsp_tool.gui.tk.StringVar": FakeVar,
         }
         with ExitStack() as stack:
@@ -365,7 +393,8 @@ class GuiUsbSharingTests(unittest.TestCase):
         self.assertEqual(rows_by_text[TEXT["yolo_package"]], 4)
         self.assertEqual(rows_by_text[TEXT["controls"]], 5)
         self.assertEqual(rows_by_text[TEXT["log"]], 6)
-        self.assertEqual(app.root.row_configs[6]["weight"], 1)
+        self.assertEqual(rows_by_text[TEXT["console"]], 7)
+        self.assertEqual(app.root.row_configs[7]["weight"], 1)
 
         self.assertIs(app.internet_adapter_combo.kwargs["textvariable"], app.selected_internet_adapter)
         self.assertEqual(app.internet_adapter_combo.kwargs["state"], "readonly")

@@ -12,6 +12,8 @@ import subprocess
 import tempfile
 from typing import Any, Callable, Iterable
 
+from . import spawn
+
 
 USB_KEYWORDS = (
     "rndis",
@@ -120,6 +122,7 @@ def run_adapter_discovery(runner=subprocess.run) -> list[NetworkAdapter]:
             text=True,
             capture_output=True,
             check=False,
+            creationflags=spawn.subprocess_flags(),
         )
     except OSError as exc:
         raise RuntimeError(f"启动网卡发现命令失败: {exc}") from exc
@@ -245,6 +248,7 @@ def configure_ics(
                 text=True,
                 capture_output=True,
                 check=False,
+                creationflags=spawn.subprocess_flags(),
             )
         except OSError as exc:
             return IcsConfigResult(ok=False, message=f"启动 ICS 配置脚本失败: {exc}")
@@ -265,7 +269,7 @@ def configure_ics(
 
 
 def open_manual_network_settings(runner=subprocess.run) -> None:
-    runner(["control.exe", "ncpa.cpl"], check=False)
+    runner(["control.exe", "ncpa.cpl"], check=False, creationflags=spawn.subprocess_flags())
 
 
 def _adapter_text(adapter: NetworkAdapter) -> str:

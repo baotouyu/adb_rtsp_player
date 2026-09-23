@@ -38,6 +38,8 @@ def bundled_command_candidates(name: str, app_dir: Path | str | None = None) -> 
         return [base_dir / "tools" / "adb" / executable]
     if name == "ffplay":
         return [base_dir / "tools" / "ffmpeg" / executable]
+    if name == "ffmpeg":
+        return [base_dir / "tools" / "ffmpeg" / executable]
     return []
 
 
@@ -84,5 +86,6 @@ def check_dependencies(app_dir: Path | str | None = None) -> dict[str, Dependenc
     return {
         "adb": check_command("adb", app_dir=app_dir),
         "ffplay": check_command("ffplay", app_dir=app_dir),
+        "ffmpeg": check_command("ffmpeg", app_dir=app_dir),
         "tkinter": check_tkinter(),
     }

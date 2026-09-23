@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from rtsp_tool.spawn import subprocess_flags
 from rtsp_tool.windows_ics import (
     build_adapter_discovery_command,
     build_elevated_ics_command,
@@ -270,7 +271,10 @@ class WindowsIcsTests(unittest.TestCase):
 
         self.assertEqual(adapters, [NetworkAdapter(name="Wi-Fi", description="Intel Wireless", status="Up", has_gateway=True)])
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], {"text": True, "capture_output": True, "check": False})
+        self.assertEqual(
+            calls[0][1],
+            {"text": True, "capture_output": True, "check": False, "creationflags": subprocess_flags()},
+        )
         self.assertIn("Get-NetAdapter", " ".join(calls[0][0]))
 
     def test_run_adapter_discovery_raises_runtime_error_with_stderr_on_failure(self):
@@ -411,7 +415,10 @@ class WindowsIcsTests(unittest.TestCase):
             self.assertTrue(result.ok)
             self.assertEqual(result.message, "ICS done")
             self.assertEqual(len(calls), 1)
-            self.assertEqual(calls[0][1], {"text": True, "capture_output": True, "check": False})
+            self.assertEqual(
+                calls[0][1],
+                {"text": True, "capture_output": True, "check": False, "creationflags": subprocess_flags()},
+            )
             self.assertTrue(script_path.exists())
             script = script_path.read_text(encoding="utf-8")
             self.assertIn("Wi-Fi", script)
@@ -535,7 +542,10 @@ class WindowsIcsTests(unittest.TestCase):
 
         open_manual_network_settings(runner=runner)
 
-        self.assertEqual(calls, [(["control.exe", "ncpa.cpl"], {"check": False})])
+        self.assertEqual(
+            calls,
+            [(["control.exe", "ncpa.cpl"], {"check": False, "creationflags": subprocess_flags()})],
+        )
 
 
 if __name__ == "__main__":

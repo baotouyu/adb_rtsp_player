@@ -16,6 +16,7 @@ from rtsp_tool.adb_client import (
     parse_ip_route_ip,
     parse_usb0_ip,
 )
+from rtsp_tool.spawn import subprocess_flags
 
 
 SAFE_YOLO_INSTALL_COMMAND = (
@@ -335,6 +336,7 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
             ],
             stdout=-3,
             stderr=-3,
+            creationflags=subprocess_flags(),
         )
         self.assertTrue(result.ok)
         self.assertEqual(result.stdout, "started")
@@ -355,6 +357,7 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
             ],
             stdout=-3,
             stderr=-3,
+            creationflags=subprocess_flags(),
         )
         self.assertTrue(result.ok)
 
@@ -378,6 +381,21 @@ usb0      Link encap:Ethernet  HWaddr 1A:2B:3C:4D:5E:6F
         self.assertEqual(second.command, rtsp_only_command)
         self.assertEqual(second.stdout, "already running")
         self.assertIn("--rtsp-only", second.command[-1])
+
+    def test_run_passes_creationflags_to_subprocess(self):
+        client = ADBClient(adb_path="adb")
+
+        with patch(
+            "rtsp_tool.adb_client.subprocess.run"
+        ) as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "abc\tdevice\n"
+            run.return_value.stderr = ""
+            client.list_devices()
+
+        run.assert_called_once()
+        kwargs = run.call_args.kwargs
+        self.assertEqual(kwargs["creationflags"], subprocess_flags())
 
     def test_wait_for_service_polls_until_pid_appears(self):
         client = ADBClient(adb_path="adb")

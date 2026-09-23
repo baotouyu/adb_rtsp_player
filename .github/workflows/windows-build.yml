@@ -104,6 +104,9 @@ jobs:
           if (!(Test-Path (Join-Path $ToolsDir "ffmpeg\ffplay.exe"))) {
             throw "Downloaded FFmpeg build did not include ffplay.exe"
           }
+          if (!(Test-Path (Join-Path $ToolsDir "ffmpeg\ffmpeg.exe"))) {
+            throw "Downloaded FFmpeg build did not include ffmpeg.exe"
+          }
 
       - name: Build portable zip
         shell: pwsh

@@ -142,7 +142,11 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.root = FakeRoot()
         app.status_text = FakeVar(state_text("ready"))
         app.service_status = FakeVar(state_text("unknown"))
-        app.dependencies = {"adb": SimpleNamespace(found=True), "ffplay": SimpleNamespace(found=True)}
+        app.dependencies = {
+            "adb": SimpleNamespace(found=True),
+            "ffplay": SimpleNamespace(found=True),
+            "ffmpeg": SimpleNamespace(found=True),
+        }
         app.devices = {"abc": ADBDevice("abc", "device")}
         app.selected_serial = FakeVar("abc")
         app.rtsp_url = FakeVar("")
@@ -154,8 +158,10 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.ai_stream_enabled = FakeVar(ai_enabled)
         app.adb = FakeAdb(install_result)
         app.player = FakePlayer()
+        app.recorder = SimpleNamespace(is_recording=lambda: False)
         app.logged = []
         app.log = app.logged.append
+        app.command = app.logged.append
         app.inspect_calls = []
 
         def inspect_device(serial, start_if_needed, ai_enabled=None):
@@ -268,13 +274,18 @@ class GuiYoloPackageTests(unittest.TestCase):
 
     def make_button_state_app(self):
         app = object.__new__(RTSPToolApp)
-        app.dependencies = {"adb": SimpleNamespace(found=True), "ffplay": SimpleNamespace(found=True)}
+        app.dependencies = {
+            "adb": SimpleNamespace(found=True),
+            "ffplay": SimpleNamespace(found=True),
+            "ffmpeg": SimpleNamespace(found=True),
+        }
         app.selected_serial = FakeVar("abc")
         app.rtsp_url = FakeVar("")
         app.selected_yolo_package = FakeVar("pkg")
         app.yolo_packages = {"pkg": self.package()}
         app.devices = {"abc": SimpleNamespace(state="device")}
         app.player = SimpleNamespace(is_running=lambda: False)
+        app.recorder = SimpleNamespace(is_recording=lambda: False)
         app._operation_in_progress = False
         buttons = {}
         for name in (
@@ -283,6 +294,8 @@ class GuiYoloPackageTests(unittest.TestCase):
             "stop_service_button",
             "start_playback_button",
             "stop_playback_button",
+            "start_recording_button",
+            "stop_recording_button",
             "copy_button",
             "update_yolo_button",
             "refresh_yolo_button",
@@ -325,6 +338,32 @@ class GuiYoloPackageTests(unittest.TestCase):
         self.assertEqual(app.update_yolo_button.state, "normal")
         self.assertEqual(app.start_after_update_check.state, "normal")
         self.assertEqual(app.ai_stream_check.state, "normal")
+
+    def test_recording_buttons_require_playing_and_ffmpeg(self):
+        app = self.make_button_state_app()
+        app.recorder = SimpleNamespace(is_recording=lambda: False)
+
+        app._update_button_states()
+        self.assertEqual(app.start_recording_button.state, "disabled")
+
+        app.player = SimpleNamespace(is_running=lambda: True)
+        app._update_button_states()
+        self.assertEqual(app.start_recording_button.state, "normal")
+        self.assertEqual(app.stop_recording_button.state, "disabled")
+
+        app.recorder = SimpleNamespace(is_recording=lambda: True)
+        app._update_button_states()
+        self.assertEqual(app.start_recording_button.state, "disabled")
+        self.assertEqual(app.stop_recording_button.state, "normal")
+
+    def test_recording_disabled_without_ffmpeg(self):
+        app = self.make_button_state_app()
+        app.dependencies["ffmpeg"] = SimpleNamespace(found=False)
+        app.player = SimpleNamespace(is_running=lambda: True)
+
+        app._update_button_states()
+
+        self.assertEqual(app.start_recording_button.state, "disabled")
 
     def test_run_background_ignores_new_work_while_operation_is_in_progress(self):
         app = self.make_button_state_app()
@@ -431,6 +470,7 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.ai_stream_enabled = FakeVar(ai_enabled)
         app.logged = []
         app.log = app.logged.append
+        app.command = app.logged.append
         app._ui = lambda func, *args: func(*args)
         app._run_background = lambda _message, work: work()
         app._update_button_states = lambda: None
@@ -467,6 +507,7 @@ class GuiYoloPackageTests(unittest.TestCase):
         app.adb = FakeInspectAdb(running=running)
         app.logged = []
         app.log = app.logged.append
+        app.command = app.logged.append
         app._ui = lambda func, *args: func(*args)
         return app
 
